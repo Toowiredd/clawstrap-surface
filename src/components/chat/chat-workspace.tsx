@@ -10,6 +10,7 @@ import { ChatInput } from './chat-input'
 import { Button } from '@/components/ui/button'
 import { SessionMessage, shouldShowTimestamp, type SessionTranscriptMessage } from './session-message'
 import { getSessionKindLabel, SessionKindAvatar } from './session-kind-brand'
+import { TerminalView } from '@/components/terminal/terminal-view'
 
 const log = createClientLogger('ChatWorkspace')
 
@@ -460,6 +461,8 @@ function SessionConversationView({
   onSavePreferences: (payload: { prefKey: string; displayName?: string; colorTag?: string }) => Promise<void>
 }) {
   const isGatewaySession = session.sessionKind === 'gateway'
+  const supportsPty = (session.sessionKind === 'claude-code' || session.sessionKind === 'codex-cli') && session.active
+  const [viewMode, setViewMode] = useState<'terminal' | 'transcript'>('transcript')
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
   const [continuePrompt, setContinuePrompt] = useState('')
   const [continueBusy, setContinueBusy] = useState(false)
@@ -586,6 +589,30 @@ function SessionConversationView({
           {session.tokens && <span className="text-muted-foreground/60">{session.tokens}</span>}
           {session.workingDir && <span className="hidden truncate text-muted-foreground/50 sm:inline max-w-[200px]">{session.workingDir}</span>}
           {session.age && <span className="text-muted-foreground/40">{session.age} ago</span>}
+
+          {/* Terminal/Transcript toggle for PTY-capable sessions */}
+          {supportsPty && (
+            <div className="ml-auto flex rounded-md border border-border/50 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setViewMode('terminal')}
+                className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  viewMode === 'terminal' ? 'bg-secondary text-foreground' : 'text-muted-foreground/60 hover:text-muted-foreground'
+                }`}
+              >
+                Terminal
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('transcript')}
+                className={`px-2 py-0.5 text-[10px] font-medium transition-colors border-l border-border/50 ${
+                  viewMode === 'transcript' ? 'bg-secondary text-foreground' : 'text-muted-foreground/60 hover:text-muted-foreground'
+                }`}
+              >
+                Transcript
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Collapsible settings */}
@@ -632,36 +659,50 @@ function SessionConversationView({
         )}
       </div>
 
-      {/* Transcript */}
-      <div ref={transcriptScrollRef} className="flex-1 overflow-y-auto font-mono-tight py-2">
-        {loading && (
-          <div className="space-y-2 px-4">
-            <div className="h-4 w-3/4 animate-pulse rounded bg-surface-1/60" />
-            <div className="h-4 w-1/2 animate-pulse rounded bg-surface-1/60" />
-            <div className="h-4 w-2/3 animate-pulse rounded bg-surface-1/60" />
-            <div className="text-xs text-muted-foreground/50">Loading transcript...</div>
-          </div>
-        )}
-        {!loading && error && (
-          <div className="px-4 text-xs text-red-400">{error}</div>
-        )}
-        {!loading && !error && messages.length === 0 && (
-          <div className="px-4 text-xs text-muted-foreground">
-            {isGatewaySession ? 'No messages loaded for this gateway session.' : 'No transcript snippets found for this session.'}
-          </div>
-        )}
-        {!loading && !error && messages.length > 0 && (
-          <div className="space-y-0">
-            {messages.map((msg, idx) => (
-              <SessionMessage
-                key={`${msg.timestamp || 'no-ts'}-${idx}`}
-                message={msg}
-                showTimestamp={shouldShowTimestamp(msg, messages[idx - 1])}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Terminal view (xterm.js PTY) */}
+      {supportsPty && viewMode === 'terminal' && (
+        <div className="flex-1 min-h-0">
+          <TerminalView
+            sessionId={session.sessionId}
+            sessionKind={session.sessionKind}
+            mode="readonly"
+            onError={() => setViewMode('transcript')}
+          />
+        </div>
+      )}
+
+      {/* Transcript view */}
+      {(!supportsPty || viewMode === 'transcript') && (
+        <div ref={transcriptScrollRef} className="flex-1 overflow-y-auto font-mono-tight py-2">
+          {loading && (
+            <div className="space-y-2 px-4">
+              <div className="h-4 w-3/4 animate-pulse rounded bg-surface-1/60" />
+              <div className="h-4 w-1/2 animate-pulse rounded bg-surface-1/60" />
+              <div className="h-4 w-2/3 animate-pulse rounded bg-surface-1/60" />
+              <div className="text-xs text-muted-foreground/50">Loading transcript...</div>
+            </div>
+          )}
+          {!loading && error && (
+            <div className="px-4 text-xs text-red-400">{error}</div>
+          )}
+          {!loading && !error && messages.length === 0 && (
+            <div className="px-4 text-xs text-muted-foreground">
+              {isGatewaySession ? 'No messages loaded for this gateway session.' : 'No transcript snippets found for this session.'}
+            </div>
+          )}
+          {!loading && !error && messages.length > 0 && (
+            <div className="space-y-0">
+              {messages.map((msg, idx) => (
+                <SessionMessage
+                  key={`${msg.timestamp || 'no-ts'}-${idx}`}
+                  message={msg}
+                  showTimestamp={shouldShowTimestamp(msg, messages[idx - 1])}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Continue session input */}
       <div className="border-t border-border/50 px-4 py-2">
