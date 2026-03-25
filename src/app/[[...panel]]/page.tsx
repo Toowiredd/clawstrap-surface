@@ -135,7 +135,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!bootComplete && initSteps.every(s => s.status === 'done')) {
-      const t = setTimeout(() => setBootComplete(), 400)
+      const t = setTimeout(() => setBootComplete(), 150)
       return () => clearTimeout(t)
     }
   }, [initSteps, bootComplete, setBootComplete])
@@ -339,24 +339,30 @@ export default function Home() {
           if (agentsData?.agents) setAgents(agentsData.agents)
         })
         .finally(() => { markStep('agents') }),
-      fetch('/api/sessions')
-        .then(r => r.ok ? r.json() : null)
-        .then((sessionsData) => {
-          if (sessionsData?.sessions) setSessions(sessionsData.sessions)
-        })
-        .finally(() => { markStep('sessions') }),
+      // Sessions can be slow with many JSONL files — don't block boot
+      (() => {
+        markStep('sessions')
+        return fetch('/api/sessions')
+          .then(r => r.ok ? r.json() : null)
+          .then((sessionsData) => {
+            if (sessionsData?.sessions) setSessions(sessionsData.sessions)
+          })
+      })(),
       fetch('/api/projects')
         .then(r => r.ok ? r.json() : null)
         .then((projectsData) => {
           if (projectsData?.projects) setProjects(projectsData.projects)
         })
         .finally(() => { markStep('projects') }),
-      fetch('/api/memory/graph?agent=all')
-        .then(r => r.ok ? r.json() : null)
-        .then((graphData) => {
-          if (graphData?.agents) setMemoryGraphAgents(graphData.agents)
-        })
-        .finally(() => { markStep('memory') }),
+      // Memory graph can be slow — don't block boot
+      (() => {
+        markStep('memory')
+        return fetch('/api/memory/graph?agent=all')
+          .then(r => r.ok ? r.json() : null)
+          .then((graphData) => {
+            if (graphData?.agents) setMemoryGraphAgents(graphData.agents)
+          })
+      })(),
       fetch('/api/skills')
         .then(r => r.ok ? r.json() : null)
         .then((skillsData) => {
