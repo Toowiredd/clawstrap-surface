@@ -8,7 +8,15 @@ import { getHermesTasks } from '@/lib/hermes-tasks'
 import { getHermesMemory } from '@/lib/hermes-memory'
 import { logger } from '@/lib/logger'
 
-const HERMES_HOME = join(config.homeDir, '.hermes')
+// In Docker, HOME=/nonexistent — check dataDir first, then homeDir
+import { resolve } from 'node:path'
+const dataDir = resolve(config.dataDir || '.data')
+const homeDir = config.homeDir || ''
+const HERMES_HOME = existsSync(join(dataDir, '.hermes'))
+  ? join(dataDir, '.hermes')
+  : existsSync(join(homeDir, '.hermes'))
+    ? join(homeDir, '.hermes')
+    : join(dataDir, '.hermes') // default to dataDir for new installs
 const HOOK_DIR = join(HERMES_HOME, 'hooks', 'mission-control')
 
 export async function GET(request: NextRequest) {
