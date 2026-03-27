@@ -223,7 +223,7 @@ export function OnboardingWizard() {
         role="dialog"
         aria-modal="true"
         aria-label="Mission Control onboarding"
-        className="relative z-10 my-auto w-full max-w-lg bg-background border border-border/50 rounded-lg sm:rounded-xl shadow-2xl overflow-hidden flex max-h-[calc(100dvh-1rem)] sm:max-h-[85vh] flex-col"
+        className={`relative z-10 my-auto w-full ${step === 2 ? 'max-w-6xl' : 'max-w-3xl'} bg-background border border-border/50 rounded-lg sm:rounded-xl shadow-2xl overflow-hidden flex max-h-[calc(100dvh-1rem)] sm:max-h-[85vh] flex-col`}
       >
         {/* Progress bar */}
         <div className="h-0.5 bg-surface-2">

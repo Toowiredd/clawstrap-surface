@@ -204,7 +204,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
           {runtimes.map((rt) => {
             const job = activeJobs[rt.id]
             const isInstalling = job?.status === 'running' || job?.status === 'pending'
@@ -232,7 +232,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                   </div>
                 )}
 
-                <div className="relative p-4">
+                <div className="relative p-4 lg:p-5">
                   {/* Status badge */}
                   {(rt.installed || justInstalled) && !isInstalling && (
                     <span className="absolute -top-0.5 right-2 text-2xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -284,8 +284,8 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
 
                       {/* Hermes inline quick config */}
                       {rt.id === 'hermes' && (rt.installed || justInstalled) && !hermesConfigSaved && (
-                        <div className="mt-2 p-2.5 rounded-lg border border-border/20 bg-black/10 space-y-2">
-                          <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider">Quick Setup</p>
+                        <div className="mt-2.5 p-3.5 rounded-lg border border-border/20 bg-black/10 space-y-3">
+                          <p className="text-[11px] text-muted-foreground/65 uppercase tracking-wider">Quick Setup</p>
 
                           {/* Provider + Model dropdowns */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -303,7 +303,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                                 setHermesOAuthCode(null)
                               }}
                               aria-label="Select Hermes provider"
-                              className="h-7 rounded border border-border/20 bg-card px-1.5 text-[10px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              className="h-9 rounded border border-border/20 bg-card px-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
                             >
                               {HERMES_PROVIDERS.map((p) => (
                                 <option key={p.id} value={p.id}>{p.label}</option>
@@ -313,7 +313,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                               value={hermesModel}
                               onChange={(e) => setHermesModel(e.target.value)}
                               aria-label="Select Hermes model"
-                              className="h-7 rounded border border-border/20 bg-card px-1.5 text-[10px] text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              className="h-9 rounded border border-border/20 bg-card px-2.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary/30"
                             >
                               {(HERMES_PROVIDERS.find(p => p.id === hermesProvider)?.models || []).map((m) => (
                                 <option key={m} value={m}>{m}</option>
@@ -328,7 +328,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                                 type="button"
                                 aria-label="Use device code authentication"
                                 onClick={() => setHermesAuthMethod('device_code')}
-                                className={`h-7 rounded border text-[10px] transition-colors ${
+                                className={`h-9 rounded border px-2 text-xs font-medium transition-colors ${
                                   hermesAuthMethod === 'device_code'
                                     ? 'border-primary/40 bg-primary/15 text-primary'
                                     : 'border-border/20 bg-card text-muted-foreground hover:border-primary/20'
@@ -340,7 +340,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                                 type="button"
                                 aria-label="Use API key authentication"
                                 onClick={() => setHermesAuthMethod('api_key')}
-                                className={`h-7 rounded border text-[10px] transition-colors ${
+                                className={`h-9 rounded border px-2 text-xs font-medium transition-colors ${
                                   hermesAuthMethod === 'api_key'
                                     ? 'border-primary/40 bg-primary/15 text-primary'
                                     : 'border-border/20 bg-card text-muted-foreground hover:border-primary/20'
@@ -353,9 +353,9 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
 
                           {/* API Key or OAuth */}
                           {usesDeviceCode ? (
-                            <div className="p-2 rounded border border-border/15 bg-black/10 text-[10px] text-muted-foreground/60 space-y-1.5">
+                            <div className="p-3 rounded-lg border border-border/15 bg-black/10 text-xs text-muted-foreground/65 space-y-2">
                               <p>OAuth uses device code flow:</p>
-                              <div className="flex items-center gap-1.5 bg-black/20 rounded px-2 py-1 font-mono text-[10px]">
+                              <div className="flex items-center gap-2 bg-black/20 rounded px-2.5 py-1.5 font-mono text-xs">
                                 <span className="text-muted-foreground/50">$</span>
                                 <span className="flex-1 text-foreground/80">hermes login</span>
                                 <button
@@ -395,12 +395,12 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                                       setHermesOAuthBusy(false)
                                     }
                                   }}
-                                  className="text-[9px] px-1.5 py-0.5 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
+                                  className="text-[11px] px-2.5 py-1 rounded bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
                                 >
                                   {hermesOAuthBusy ? 'Waiting...' : 'Start auth'}
                                 </button>
                               </div>
-                              <p className="text-[10px] text-muted-foreground/50 leading-relaxed">No API key needed. Start auth, open the link, paste the code, then return here while terminal waits for completion.</p>
+                              <p className="text-xs text-muted-foreground/55 leading-relaxed">No API key needed. Start auth, open the link, paste the code, then return here while terminal waits for completion.</p>
                               {hermesOAuthUrl && (
                                 <a
                                   href={hermesOAuthUrl}
@@ -480,7 +480,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                               } catch { /* ignore */ }
                               setHermesConfigBusy(false)
                             }}
-                            className="w-full text-2xs py-1 rounded border border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
+                            className="w-full h-9 rounded border border-primary/30 bg-primary/10 px-3 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
                           >
                             {hermesConfigBusy ? 'Saving...' : 'Apply Configuration'}
                           </button>
