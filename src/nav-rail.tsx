@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
-import { useMissionControl } from '@/store'
+import { useClawstrap } from '@/store'
 import { Button } from '@/components/ui/button'
 
 interface NavItem {
@@ -66,7 +66,7 @@ const navGroups: NavGroup[] = [
 const allNavItems = navGroups.flatMap(g => g.items)
 
 export function NavRail() {
-  const { activeTab, setActiveTab, connection, sidebarExpanded, collapsedGroups, toggleSidebar, toggleGroup } = useMissionControl()
+  const { activeTab, setActiveTab, connection, sidebarExpanded, collapsedGroups, toggleSidebar, toggleGroup } = useClawstrap()
 
   // Keyboard shortcut: [ to toggle sidebar
   useEffect(() => {
@@ -93,14 +93,14 @@ export function NavRail() {
           <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Mission Control logo"
+              alt="Clawstrap logo"
               width={36}
               height={36}
               className="w-full h-full object-cover"
             />
           </div>
           {sidebarExpanded && (
-            <span className="text-sm font-semibold text-foreground truncate flex-1">Mission Control</span>
+            <span className="text-sm font-semibold text-foreground truncate flex-1">Clawstrap</span>
           )}
           <Button
             variant="ghost"

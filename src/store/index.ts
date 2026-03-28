@@ -368,7 +368,7 @@ export interface ExecApprovalRequest {
   status: 'pending' | 'approved' | 'denied' | 'expired'
 }
 
-interface MissionControlStore {
+interface ClawstrapStore {
   // Dashboard Mode (local vs full gateway)
   dashboardMode: 'full' | 'local'
   gatewayAvailable: boolean
@@ -596,7 +596,7 @@ interface MissionControlStore {
   setHeaderDensity: (mode: 'focus' | 'compact') => void
 }
 
-export const useMissionControl = create<MissionControlStore>()(
+export const useClawstrap = create<ClawstrapStore>()(
   subscribeWithSelector((set, get) => ({
     // Dashboard Mode
     dashboardMode: 'local' as const,

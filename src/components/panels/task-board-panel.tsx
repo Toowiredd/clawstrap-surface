@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import { useMissionControl } from '@/store'
+import { useClawstrap } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 
 import { createClientLogger } from '@/lib/client-logger'
@@ -386,7 +386,7 @@ interface SpawnFormData {
 export function TaskBoardPanel() {
   const t = useTranslations('taskBoard')
   const statusColumns = STATUS_COLUMN_KEYS.map(col => ({ ...col, title: t(col.titleKey as any) }))
-  const { tasks: storeTasks, setTasks: storeSetTasks, selectedTask, setSelectedTask, activeProject, availableModels, spawnRequests, addSpawnRequest, updateSpawnRequest, dashboardMode } = useMissionControl()
+  const { tasks: storeTasks, setTasks: storeSetTasks, selectedTask, setSelectedTask, activeProject, availableModels, spawnRequests, addSpawnRequest, updateSpawnRequest, dashboardMode } = useClawstrap()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -583,7 +583,7 @@ export function TaskBoardPanel() {
     e.preventDefault()
   }
 
-  const { updateTask } = useMissionControl()
+  const { updateTask } = useClawstrap()
 
   const handleDrop = async (e: React.DragEvent, newStatus: string) => {
     e.preventDefault()
@@ -1201,7 +1201,7 @@ function TaskDetailModal({
 }) {
   const t = useTranslations('taskBoard')
   const router = useRouter()
-  const { currentUser } = useMissionControl()
+  const { currentUser } = useClawstrap()
   const commentAuthor = currentUser?.username || 'system'
   const resolvedProjectName =
     task.project_name ||

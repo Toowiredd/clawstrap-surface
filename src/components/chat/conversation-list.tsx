@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useMissionControl, Conversation } from '@/store'
+import { useClawstrap, Conversation } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { createClientLogger } from '@/lib/client-logger'
 import { Button } from '@/components/ui/button'
@@ -133,7 +133,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
     activeConversation,
     setActiveConversation,
     markConversationRead,
-  } = useMissionControl()
+  } = useClawstrap()
   const [search, setSearch] = useState('')
 
   // Context menu state

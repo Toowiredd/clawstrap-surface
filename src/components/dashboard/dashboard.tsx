@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { useMissionControl } from '@/store'
+import { useClawstrap } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { SignalPill, getLocalOsStatus, getProviderHealth, getMcHealth } from './widget-primitives'
@@ -21,7 +21,7 @@ export function Dashboard() {
     agents,
     tasks,
     setActiveConversation,
-  } = useMissionControl()
+  } = useClawstrap()
 
   const navigateToPanel = useNavigateToPanel()
   const isLocal = dashboardMode === 'local'

@@ -22,7 +22,7 @@ import {
   CreateAgentModal
 } from './agent-detail-tabs'
 import { formatModelName, buildTaskStatParts } from '@/lib/agent-card-helpers'
-import { useMissionControl, type Agent } from '@/store'
+import { useClawstrap, type Agent } from '@/store'
 
 const log = createClientLogger('AgentSquadPhase3')
 
@@ -95,7 +95,7 @@ const statusCardStyles: Record<string, { edge: string; glow: string; dot: string
 
 export function AgentSquadPanelPhase3() {
   const t = useTranslations('agentSquadPhase3')
-  const { agents, setAgents } = useMissionControl()
+  const { agents, setAgents } = useClawstrap()
   const [loading, setLoading] = useState(agents.length === 0)
   const [error, setError] = useState<string | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
@@ -209,7 +209,7 @@ export function AgentSquadPanelPhase3() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: `🤖 **Wake Up Call**\n\nAgent ${agentName}, you have been manually woken up.\nCheck Mission Control for any pending tasks or notifications.\n\n⏰ ${new Date().toLocaleString()}`
+          message: `🤖 **Wake Up Call**\n\nAgent ${agentName}, you have been manually woken up.\nCheck Clawstrap for any pending tasks or notifications.\n\n⏰ ${new Date().toLocaleString()}`
         })
       })
 

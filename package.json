@@ -1,7 +1,7 @@
 {
-  "name": "mission-control",
+  "name": "clawstrap-surface",
   "version": "2.0.1",
-  "description": "OpenClaw Mission Control — open-source agent orchestration dashboard",
+  "description": "Clawstrap Control Surface — multi-agent product factory dashboard",
   "scripts": {
     "verify:node": "node scripts/check-node-version.mjs",
     "api:parity": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore",
@@ -9,10 +9,13 @@
     "mc": "node scripts/mc-cli.cjs",
     "mc:mcp": "node scripts/mc-mcp-server.cjs",
     "mc:tui": "node scripts/mc-tui.cjs",
-    "dev": "pnpm run verify:node && next dev --hostname 127.0.0.1 --port ${PORT:-3000}",
+    "dev": "pnpm run verify:node && next dev --hostname 127.0.0.1 --port 3000",
     "build": "pnpm run verify:node && next build",
     "start": "pnpm run verify:node && next start --hostname 0.0.0.0 --port ${PORT:-3000}",
     "start:standalone": "pnpm run verify:node && bash scripts/start-standalone.sh",
+    "start:win": "powershell -ExecutionPolicy Bypass -File scripts/start-standalone.ps1",
+    "service:install": "powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1",
+    "service:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/uninstall-service.ps1",
     "deploy:standalone": "pnpm run verify:node && bash scripts/deploy-standalone.sh",
     "lint": "pnpm run verify:node && eslint .",
     "typecheck": "pnpm run verify:node && tsc --noEmit",
@@ -28,6 +31,7 @@
     "postinstall": "node -e \"try{require('better-sqlite3')}catch(e){if(e.code==='ERR_DLOPEN_FAILED'||/NODE_MODULE_VERSION/.test(e.message)){console.error('\\n⚠  better-sqlite3 compiled for wrong Node version. Run: pnpm rebuild better-sqlite3\\n');process.exit(1)}}\""
   },
   "dependencies": {
+    "@pieces.app/pieces-os-client": "^4.1.0",
     "@radix-ui/react-slot": "^1.2.4",
     "@scalar/api-reference-react": "^0.8.66",
     "@xyflow/react": "^12.10.0",
@@ -87,8 +91,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/builderz-labs/mission-control.git"
+    "url": "https://github.com/Toowiredd/clawstrap-surface.git"
   },
+  "homepage": "https://github.com/Toowiredd/clawstrap-surface",
   "pnpm": {
     "onlyBuiltDependencies": [
       "better-sqlite3"

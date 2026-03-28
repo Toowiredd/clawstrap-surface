@@ -2,13 +2,13 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { useMissionControl } from '@/store'
+import { useClawstrap } from '@/store'
 import { Button } from '@/components/ui/button'
 
 type UpdateState = 'idle' | 'updating' | 'success' | 'error'
 
 export function OpenClawUpdateBanner() {
-  const { openclawUpdate, openclawUpdateDismissedVersion, dismissOpenclawUpdate, setOpenclawUpdate } = useMissionControl()
+  const { openclawUpdate, openclawUpdateDismissedVersion, dismissOpenclawUpdate, setOpenclawUpdate } = useClawstrap()
   const t = useTranslations('openclawUpdateBanner')
   const tc = useTranslations('common')
   const [copied, setCopied] = useState(false)

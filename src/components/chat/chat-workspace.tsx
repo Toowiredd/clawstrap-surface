@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useCallback, useState, useRef } from 'react'
-import { useMissionControl, type Conversation, type ChatAttachment } from '@/store'
+import { useClawstrap, type Conversation, type ChatAttachment } from '@/store'
 import { useSmartPoll } from '@/lib/use-smart-poll'
 import { createClientLogger } from '@/lib/client-logger'
 import { ConversationList } from './conversation-list'
@@ -37,7 +37,7 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
     conversations,
     setAgents,
     notifications,
-  } = useMissionControl()
+  } = useClawstrap()
 
   const pendingIdRef = useRef(-1)
 

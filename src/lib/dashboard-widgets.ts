@@ -99,10 +99,20 @@ export const WIDGET_CATALOG: DashboardWidget[] = [
     defaultSize: 'full',
     component: 'QuickActionsWidget',
   },
+  {
+    id: 'topology',
+    label: 'System Topology',
+    description: 'Interactive Clawstrap system topology map',
+    category: 'integrations',
+    modes: ['local', 'full'],
+    defaultSize: 'full',
+    component: 'TopologyWidget',
+  },
 ]
 
 export const LOCAL_DEFAULT_LAYOUT = [
   'metric-cards',
+  'topology',
   'runtime-health',
   'session-workbench',
   'event-stream',
@@ -113,6 +123,7 @@ export const LOCAL_DEFAULT_LAYOUT = [
 
 export const GATEWAY_DEFAULT_LAYOUT = [
   'metric-cards',
+  'topology',
   'gateway-health',
   'session-workbench',
   'event-stream',

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { useSmartPoll } from '@/lib/use-smart-poll'
-import { useMissionControl, type LogEntry, type Session } from '@/store'
+import { useClawstrap, type LogEntry, type Session } from '@/store'
 
 import type { AggregateEvent } from '@/app/api/sessions/transcript/aggregate/route'
 
@@ -217,7 +217,7 @@ export function AgentCommsPanel() {
     sessions,
     connection,
     currentUser,
-  } = useMissionControl()
+  } = useClawstrap()
 
   // Fetch DB-backed comms messages
   const fetchComms = useCallback(async () => {

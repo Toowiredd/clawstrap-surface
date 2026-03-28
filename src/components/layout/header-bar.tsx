@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
-import { useMissionControl, type ConnectionStatus } from '@/store'
+import { useClawstrap, type ConnectionStatus } from '@/store'
 import { extractWsHost } from '@/lib/agent-card-helpers'
 import { useWebSocket } from '@/lib/websocket'
 import { useNavigateToPanel, usePrefetchPanel } from '@/lib/navigation'
@@ -43,7 +43,7 @@ const QUICK_NAV_COMMANDS: Array<{ panel: string; titleKey: string; title: string
 ]
 
 export function HeaderBar() {
-  const { connection, sessions, unreadNotificationCount, activeTenant, activeProject, dashboardMode } = useMissionControl()
+  const { connection, sessions, unreadNotificationCount, activeTenant, activeProject, dashboardMode } = useClawstrap()
   const { isConnected, reconnect } = useWebSocket()
   const navigateToPanel = useNavigateToPanel()
   const prefetchPanel = usePrefetchPanel()
@@ -463,7 +463,7 @@ function ModeBadge({
   connection: ConnectionStatus
   onReconnect: () => void
 }) {
-  const { dashboardMode } = useMissionControl()
+  const { dashboardMode } = useClawstrap()
   const th = useTranslations('header')
   const isLocal = dashboardMode === 'local'
   const [showTooltip, setShowTooltip] = useState(false)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import { useMissionControl } from '@/store'
+import { useClawstrap } from '@/store'
 import { WIDGET_CATALOG, getDefaultLayout, getAvailableWidgets, getWidgetById } from '@/lib/dashboard-widgets'
 import { Button } from '@/components/ui/button'
 import type { DashboardData } from './widget-primitives'
@@ -16,6 +16,7 @@ import { GithubSignalWidget } from './widgets/github-signal-widget'
 import { SecurityAuditWidget } from './widgets/security-audit-widget'
 import { MaintenanceWidget } from './widgets/maintenance-widget'
 import { QuickActionsWidget } from './widgets/quick-actions-widget'
+import { TopologyWidget } from './widgets/topology-widget'
 
 const WIDGET_COMPONENTS: Record<string, React.ComponentType<{ data: DashboardData }>> = {
   'metric-cards': MetricCardsWidget,
@@ -28,6 +29,7 @@ const WIDGET_COMPONENTS: Record<string, React.ComponentType<{ data: DashboardDat
   'security-audit': SecurityAuditWidget,
   'maintenance': MaintenanceWidget,
   'quick-actions': QuickActionsWidget,
+  'topology': TopologyWidget,
 }
 
 // Map widget defaultSize to CSS grid column spans
@@ -39,7 +41,7 @@ const SIZE_CLASSES: Record<string, string> = {
 }
 
 export function WidgetGrid({ data }: { data: DashboardData }) {
-  const { dashboardLayout, setDashboardLayout, dashboardMode } = useMissionControl()
+  const { dashboardLayout, setDashboardLayout, dashboardMode } = useClawstrap()
   const mode = dashboardMode === 'local' ? 'local' : 'full'
   const [customizing, setCustomizing] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)

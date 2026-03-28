@@ -262,7 +262,7 @@ export interface ConnectionStatus {
   sseConnected?: boolean
 }
 
-interface MissionControlStore {
+interface ClawstrapStore {
   // WebSocket & Connection
   connection: ConnectionStatus
   lastMessage: any
@@ -398,7 +398,7 @@ interface MissionControlStore {
   toggleLiveFeed: () => void
 }
 
-export const useMissionControl = create<MissionControlStore>()(
+export const useClawstrap = create<ClawstrapStore>()(
   subscribeWithSelector((set, get) => ({
     // Connection state
     connection: {
