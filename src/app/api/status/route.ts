@@ -268,6 +268,16 @@ async function getSystemStatus(workspaceId: number) {
       if (match) {
         status.uptime = Date.now() - parseInt(match[1]) * 1000
       }
+    } else if (process.platform === 'win32') {
+      const { stdout } = await runCommand(
+        'powershell.exe',
+        ['-Command', '(Get-Date) - (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime | Select-Object -ExpandProperty TotalMilliseconds'],
+        { timeoutMs: 5000 }
+      )
+      const ms = parseFloat(stdout.trim())
+      if (!isNaN(ms)) {
+        status.uptime = Math.round(ms)
+      }
     } else {
       const { stdout } = await runCommand('uptime', ['-s'], {
         timeoutMs: 3000
