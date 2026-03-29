@@ -6,6 +6,14 @@ All notable changes to Mission Control are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Governor integration** — `clawstrap-governor` (SQLite MCP backend) is now wired into the surface
+  - `/api/governor/[...path]` proxy route: transparent REST + SSE passthrough behind surface auth gate
+  - `src/lib/governor.ts`: typed `GovernorVision`, `Task`, `Decision`, `Question`, `Risk`, `Gate` interfaces; `governorApi` fetch helpers; `subscribeGovernorEvents` SSE hook
+  - `GovernorPanel` at `/governor`: live mission dashboard with vision selector, 30 s polling, SSE incremental updates, two-column layout (tasks/questions/gates + risks/decisions/events), graceful offline state
+  - `GOVERNOR_URL` env var (default `http://localhost:3001`) added to `config.ts`
+  - Governor nav item (shield icon) in core group, between Overview and Topology
+
 ---
 
 ## [2.0.1] - 2026-03-18
