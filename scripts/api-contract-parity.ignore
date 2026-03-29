@@ -18,6 +18,7 @@ GET /api/pieces/assets
 GET /api/pieces/conversations
 GET /api/pieces/conversations/{id}
 GET /api/pieces/events
+GET /api/pieces/events/{id}
 GET /api/pieces/health
 GET /api/pieces/models
 GET /api/pieces/search

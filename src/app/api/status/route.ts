@@ -297,13 +297,16 @@ async function getSystemStatus(workspaceId: number) {
       timeoutMs: 3000
     })
     const lastLine = diskOutput.trim().split('\n').pop() || ''
-    const diskParts = lastLine.split(/\s+/)
-    if (diskParts.length >= 4) {
+    // Parse from the right: df columns end with "Use% Mounted-on", so fixed positions from end
+    // Handles filesystem names with spaces (e.g. "C:/Program Files/Git" on Windows)
+    const diskParts = lastLine.trim().split(/\s+/)
+    if (diskParts.length >= 5) {
+      const len = diskParts.length
       status.disk = {
-        total: diskParts[1],
-        used: diskParts[2],
-        available: diskParts[3],
-        usage: diskParts[4]
+        total: diskParts[len - 5],
+        used: diskParts[len - 4],
+        available: diskParts[len - 3],
+        usage: diskParts[len - 2]
       }
     }
   } catch (error) {

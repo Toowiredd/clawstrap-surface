@@ -10,11 +10,12 @@ import {
   AnnotationsApi,
   QGPTApi,
   SearchApi,
+  WorkstreamEventApi,
   WorkstreamEventsApi,
   WorkstreamSummariesApi,
 } from '@pieces.app/pieces-os-client'
 
-const PIECES_OS_URL = process.env.PIECES_OS_URL ?? 'http://localhost:1000'
+const PIECES_OS_URL = process.env.PIECES_OS_URL ?? 'http://localhost:39301'
 
 let _config: Configuration | null = null
 let _wellKnownApi: WellKnownApi | null = null
@@ -27,6 +28,7 @@ let _modelsApi: ModelsApi | null = null
 let _annotationsApi: AnnotationsApi | null = null
 let _qgptApi: QGPTApi | null = null
 let _searchApi: SearchApi | null = null
+let _workstreamEventApi: WorkstreamEventApi | null = null
 let _workstreamEventsApi: WorkstreamEventsApi | null = null
 let _workstreamSummariesApi: WorkstreamSummariesApi | null = null
 
@@ -50,6 +52,7 @@ export function getPiecesApi() {
   if (!_annotationsApi) _annotationsApi = new AnnotationsApi(config)
   if (!_qgptApi) _qgptApi = new QGPTApi(config)
   if (!_searchApi) _searchApi = new SearchApi(config)
+  if (!_workstreamEventApi) _workstreamEventApi = new WorkstreamEventApi(config)
   if (!_workstreamEventsApi) _workstreamEventsApi = new WorkstreamEventsApi(config)
   if (!_workstreamSummariesApi) _workstreamSummariesApi = new WorkstreamSummariesApi(config)
 
@@ -64,6 +67,7 @@ export function getPiecesApi() {
     annotations: _annotationsApi,
     qgpt: _qgptApi,
     search: _searchApi,
+    workstreamEvent: _workstreamEventApi,
     workstreamEvents: _workstreamEventsApi,
     workstreamSummaries: _workstreamSummariesApi,
   }

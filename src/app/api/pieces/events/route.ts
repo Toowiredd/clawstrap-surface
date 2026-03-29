@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
     const limit = Math.max(1, Math.min(200, Number(searchParams.get('limit') ?? 50)))
     const { workstreamEvents } = getPiecesApi()
 
-    const snapshot = await workstreamEvents.workstreamEventsSnapshot({})
+    const snapshot = await workstreamEvents.workstreamEventsSnapshot(
+      {},
+      { signal: AbortSignal.timeout(5_000) }
+    )
     const events = (snapshot.iterable ?? [])
       .map(normalizePiecesEvent)
       .sort((a, b) => b.createdAt - a.createdAt)
@@ -25,7 +28,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ events, total: snapshot.iterable?.length ?? events.length })
   } catch (err) {
-    logger.error({ err }, 'GET /api/pieces/events error')
-    return NextResponse.json({ error: 'Failed to fetch workstream events' }, { status: 500 })
+    // Workstream events snapshot can be very large; timeout is expected on large installations.
+    const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')
+    if (!isTimeout) logger.error({ err }, 'GET /api/pieces/events error')
+    return NextResponse.json({ events: [], total: 0, partial: true })
   }
 }
