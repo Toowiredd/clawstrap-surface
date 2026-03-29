@@ -14,6 +14,19 @@ All notable changes to Mission Control are documented in this file.
   - `GOVERNOR_URL` env var (default `http://localhost:3001`) added to `config.ts`
   - Governor nav item (shield icon) in core group, between Overview and Topology
 
+### Changed
+- Governor projection mapping now explicitly preserves lineage fields (`vision_id`, `spec_id`, `task_id`) across decision/question/risk payloads.
+- Contract posture hardened for forward compatibility:
+- unknown future task status strings are preserved instead of dropping otherwise valid rows.
+- omitted optional payload fields normalize to `null` for task/question/gate records.
+
+### Tests
+- Added regression coverage for governor route proxy parity at `src/lib/__tests__/governor-route.test.ts`.
+- Expanded governor mapper coverage in `src/lib/__tests__/governor.test.ts` for:
+- lineage-null preservation across questions/risks
+- unknown enum/status tolerance
+- optional-field omission handling
+
 ---
 
 ## [2.0.1] - 2026-03-18
