@@ -110,6 +110,7 @@ export const config = {
     tokenUsage: clampInt(Number(process.env.MC_RETAIN_TOKEN_USAGE_DAYS || '90'), 0, 3650, 90),
     gatewaySessions: clampInt(Number(process.env.MC_RETAIN_GATEWAY_SESSIONS_DAYS || '90'), 0, 3650, 90),
   },
+  governorUrl: process.env.GOVERNOR_URL || 'http://localhost:3001',
 }
 
 export function ensureDirExists(dirPath: string) {

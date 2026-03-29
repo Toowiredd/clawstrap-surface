@@ -39,6 +39,7 @@ import { SystemMonitorPanel } from '@/components/panels/system-monitor-panel'
 import { ChatPagePanel } from '@/components/panels/chat-page-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { ClawstrapTopologyPanel } from '@/components/panels/clawstrap-topology-panel'
+import { GovernorPanel } from '@/components/panels/governor-panel'
 import { getPluginPanel } from '@/lib/plugins'
 import { shouldRedirectDashboardToHttps } from '@/lib/browser-security'
 import { useTranslations } from 'next-intl'
@@ -506,6 +507,8 @@ function ContentRouter({ tab }: { tab: string }) {
       )
     case 'topology':
       return <ClawstrapTopologyPanel />
+    case 'governor':
+      return <GovernorPanel />
     case 'tasks':
       return <TaskBoardPanel />
     case 'agents':

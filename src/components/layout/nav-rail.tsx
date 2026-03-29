@@ -29,6 +29,7 @@ const navGroups: NavGroup[] = [
     id: 'core',
     items: [
       { id: 'overview', label: 'Overview', icon: <OverviewIcon />, priority: true, essential: true },
+      { id: 'governor', label: 'Governor', icon: <GovernorIcon />, priority: true, essential: true },
       { id: 'topology', label: 'Topology', icon: <TopologyIcon />, priority: true, essential: true },
       { id: 'agents', label: 'Agents', icon: <AgentsIcon />, priority: true, essential: true },
       { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, priority: true, essential: true },
@@ -85,6 +86,7 @@ const navGroups: NavGroup[] = [
 // Map nav item IDs to translation keys in the 'nav' namespace
 const navItemTranslationKeys: Record<string, string> = {
   overview: 'overview',
+  governor: 'governor',
   topology: 'topology',
   agents: 'agents',
   tasks: 'tasks',
@@ -1215,6 +1217,15 @@ function OverviewIcon() {
       <rect x="9" y="1" width="6" height="6" rx="1" />
       <rect x="1" y="9" width="6" height="6" rx="1" />
       <rect x="9" y="9" width="6" height="6" rx="1" />
+    </svg>
+  )
+}
+
+function GovernorIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 2l5 3v4a5 5 0 01-5 5 5 5 0 01-5-5V5l5-3z" />
+      <path d="M6 8l1.5 1.5L10 6" />
     </svg>
   )
 }
