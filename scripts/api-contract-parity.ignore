@@ -10,3 +10,18 @@ GET /api/v1/runs/{run_id}/provenance
 PATCH /api/v1/runs/{run_id}
 POST /api/v1/runs
 PUT /api/v1/runs/{run_id}/eval
+
+# Pieces OS proxy routes — these forward to localhost:1000 (Pieces OS REST API)
+# and are intentionally excluded from the OpenAPI contract spec.
+DELETE /api/pieces/conversations/{id}
+GET /api/pieces/assets
+GET /api/pieces/conversations
+GET /api/pieces/conversations/{id}
+GET /api/pieces/events
+GET /api/pieces/health
+GET /api/pieces/models
+GET /api/pieces/search
+GET /api/pieces/summaries
+POST /api/pieces/assets
+POST /api/pieces/conversations
+POST /api/pieces/conversations/{id}
