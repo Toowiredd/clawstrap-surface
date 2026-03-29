@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useClawstrap } from '@/store'
 import { Button } from '@/components/ui/button'
 
@@ -10,13 +11,31 @@ interface ConnectionStatusProps {
   onReconnect?: () => void
 }
 
-export function ConnectionStatus({ 
-  isConnected, 
-  onConnect, 
-  onDisconnect, 
-  onReconnect 
+export function ConnectionStatus({
+  isConnected,
+  onConnect,
+  onDisconnect,
+  onReconnect
 }: ConnectionStatusProps) {
   const { connection } = useClawstrap()
+  const [piecesOk, setPiecesOk] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const check = () => {
+      fetch('/api/pieces/health')
+        .then(async (res) => {
+          if (cancelled) return
+          if (!res.ok) { setPiecesOk(false); return }
+          const data = await res.json()
+          setPiecesOk(data.status === 'ok')
+        })
+        .catch(() => { if (!cancelled) setPiecesOk(false) })
+    }
+    check()
+    const interval = setInterval(check, 30000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [])
   const displayUrl = connection.url || 'ws://<gateway-host>:<gateway-port>'
   const isGatewayOptional = process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL === 'true'
 
@@ -42,7 +61,7 @@ export function ConnectionStatus({
 
   return (
     <div className="flex items-center space-x-4">
-      {/* Connection Status Indicator */}
+      {/* Connection Status Indicators */}
       <div className="flex items-center space-x-2">
         <div className={`w-3 h-3 rounded-full ${getStatusColor()}`}></div>
         <span className="text-sm font-medium">
@@ -50,6 +69,14 @@ export function ConnectionStatus({
         </span>
         <span className="text-xs text-muted-foreground">
           {displayUrl}
+        </span>
+      </div>
+
+      {/* Pieces OS Status */}
+      <div className="flex items-center space-x-1.5">
+        <div className={`w-2.5 h-2.5 rounded-full ${piecesOk === null ? 'bg-zinc-500' : piecesOk ? 'bg-pink-500 animate-pulse' : 'bg-red-500'}`} />
+        <span className="text-xs text-muted-foreground">
+          Pieces {piecesOk === null ? '' : piecesOk ? 'OK' : 'Down'}
         </span>
       </div>
 

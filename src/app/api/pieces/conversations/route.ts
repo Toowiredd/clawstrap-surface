@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getPiecesApi } from '@/lib/pieces'
+import { normalizePiecesConversation } from '@/lib/pieces-ui'
 import { ConversationTypeEnum } from '@pieces.app/pieces-os-client'
 
 export async function GET(request: NextRequest) {
@@ -15,7 +16,9 @@ export async function GET(request: NextRequest) {
   try {
     const { conversations } = getPiecesApi()
     const snapshot = await conversations.conversationsSnapshot({})
-    const items = snapshot.iterable ?? []
+    const items = (snapshot.iterable ?? [])
+      .map(normalizePiecesConversation)
+      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     return NextResponse.json({ conversations: items, total: items.length })
   } catch (err) {
     logger.error({ err }, 'GET /api/pieces/conversations error')

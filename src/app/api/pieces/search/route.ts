@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getPiecesApi } from '@/lib/pieces'
+import { answerText, normalizePiecesAsset } from '@/lib/pieces-ui'
 
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
@@ -14,24 +15,45 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const query = searchParams.get('q')
+    const mode = searchParams.get('mode') ?? 'hybrid'
 
     if (!query) {
       return NextResponse.json({ error: 'q query parameter is required' }, { status: 400 })
     }
 
-    const { qgpt } = getPiecesApi()
+    const { qgpt, search } = getPiecesApi()
 
-    const result = await qgpt.relevance({
-      qGPTRelevanceInput: {
-        query,
-        options: { question: true },
-      },
-    })
+    const [ftsResult, neuralResult, relevanceResult] = await Promise.all([
+      mode === 'full_text' || mode === 'hybrid'
+        ? search.fullTextSearch({ query })
+        : Promise.resolve({ iterable: [] }),
+      mode === 'neural' || mode === 'hybrid'
+        ? search.neuralCodeSearch({ query })
+        : Promise.resolve({ iterable: [] }),
+      mode === 'relevance' || mode === 'hybrid'
+        ? qgpt.relevance({
+            qGPTRelevanceInput: {
+              query,
+              options: { question: true },
+            },
+          })
+        : Promise.resolve(null),
+    ])
+
+    const merged = new Map<string, ReturnType<typeof normalizePiecesAsset>>()
+
+    for (const asset of [...(ftsResult.iterable ?? []), ...(neuralResult.iterable ?? [])]) {
+      const normalized = normalizePiecesAsset(asset)
+      merged.set(normalized.id, normalized)
+    }
 
     return NextResponse.json({
       query,
-      answers: result.answer?.answers?.iterable ?? [],
-      relevant: result.relevant?.iterable ?? [],
+      mode,
+      answer: relevanceResult ? answerText(relevanceResult) : undefined,
+      answers: relevanceResult?.answer?.answers?.iterable ?? [],
+      relevant: relevanceResult?.relevant?.iterable ?? [],
+      assets: Array.from(merged.values()),
     })
   } catch (err) {
     logger.error({ err }, 'GET /api/pieces/search error')

@@ -84,6 +84,9 @@ export interface DashboardData {
   // Subscription display
   subscriptionLabel: string | null
   subscriptionPrice: number | null
+  // Pieces OS
+  piecesHealth: { status: string; version?: string } | null
+  piecesAssetCount: number | null
 }
 
 // --- Sub-components ---

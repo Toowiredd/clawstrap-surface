@@ -57,10 +57,10 @@ const STATUS_COLORS: Record<BuildStatus, { bg: string; border: string; text: str
 }
 
 const STATUS_LABELS: Record<BuildStatus, string> = {
-  built: 'BUILT',
-  wired: 'WIRED',
-  'in-progress': 'WIP',
-  planned: 'PLANNED',
+  built: 'SHIPPED',
+  wired: 'INTEGRATED',
+  'in-progress': 'IN DEV',
+  planned: 'ROADMAP',
 }
 
 // ─── TOPOLOGY DATA ──────────────────────────────────────────────
@@ -540,7 +540,7 @@ function TopologyInner() {
         <div>
           <h2 className="font-semibold text-foreground">Clawstrap Topology</h2>
           <p className="text-xs text-muted-foreground">
-            Multi-agent product factory — {TOPO_NODES.length} components, {TOPO_CONNECTIONS.length} connections
+            Architecture roadmap — {TOPO_NODES.length} components, {TOPO_CONNECTIONS.length} connections · <span className="italic">build phase, not live status</span>
           </p>
         </div>
         <div className="flex items-center gap-3 text-xs font-mono">

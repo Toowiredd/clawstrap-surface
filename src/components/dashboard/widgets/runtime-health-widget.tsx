@@ -3,7 +3,13 @@
 import { HealthRow, formatUptime, type DashboardData } from '../widget-primitives'
 
 export function RuntimeHealthWidget({ data }: { data: DashboardData }) {
-  const { localOsStatus, claudeHealth, codexHealth, hermesHealth, mcHealth, memPct, systemStats } = data
+  const { localOsStatus, claudeHealth, codexHealth, hermesHealth, mcHealth, memPct, systemStats, piecesHealth } = data
+
+  const piecesStatus = !piecesHealth
+    ? { value: 'Loading...', status: 'warn' as const }
+    : piecesHealth.status === 'ok'
+      ? { value: piecesHealth.version ? `v${piecesHealth.version}` : 'Connected', status: 'good' as const }
+      : { value: 'Unreachable', status: 'bad' as const }
 
   return (
     <div className="panel">
@@ -14,6 +20,7 @@ export function RuntimeHealthWidget({ data }: { data: DashboardData }) {
         <HealthRow label="Codex Runtime" value={codexHealth.value} status={codexHealth.status} />
         <HealthRow label="Hermes Runtime" value={hermesHealth.value} status={hermesHealth.status} />
         <HealthRow label="MC Core" value={mcHealth.value} status={mcHealth.status} />
+        <HealthRow label="Pieces OS" value={piecesStatus.value} status={piecesStatus.status} />
         {memPct != null && <HealthRow label="Memory" value={`${memPct}%`} status={memPct > 90 ? 'bad' : memPct > 70 ? 'warn' : 'good'} bar={memPct} />}
         {systemStats?.disk && <HealthRow label="Disk" value={systemStats.disk.usage || 'N/A'} status={parseInt(systemStats.disk.usage) > 90 ? 'bad' : 'good'} />}
         {systemStats?.uptime != null && <HealthRow label="Uptime" value={formatUptime(systemStats.uptime)} status="good" />}

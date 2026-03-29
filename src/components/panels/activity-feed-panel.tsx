@@ -37,6 +37,14 @@ interface SessionInfo {
   active: boolean
 }
 
+interface PiecesEvent {
+  id: string
+  summary: string
+  application?: string
+  category?: string
+  createdAt?: number
+}
+
 const activityIcons: Record<string, string> = {
   task_created: '+',
   task_updated: '~',
@@ -224,6 +232,10 @@ export function ActivityFeedPanel() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(0)
   const [lastRefresh, setLastRefresh] = useState(Date.now())
+  const [piecesEvents, setPiecesEvents] = useState<PiecesEvent[]>([])
+  const [piecesLoading, setPiecesLoading] = useState(false)
+  const [piecesAvailable, setPiecesAvailable] = useState(true)
+  const [includePieces, setIncludePieces] = useState(true)
 
   const [selectedAgent, setSelectedAgent] = useState<string>('')
   const [filter, setFilter] = useState({ type: '', limit: 50 })
@@ -285,6 +297,33 @@ export function ActivityFeedPanel() {
   }, [fetchActivities, isAgentView])
 
   useSmartPoll(pollActivities, 30000, { enabled: autoRefresh, pauseWhenSseConnected: true })
+
+  const fetchPiecesEvents = useCallback(async () => {
+    if (!includePieces || isAgentView) return
+    try {
+      setPiecesLoading(true)
+      const response = await fetch('/api/pieces/events?limit=12')
+      if (!response.ok) {
+        setPiecesAvailable(false)
+        setPiecesEvents([])
+        return
+      }
+      const data = await response.json()
+      setPiecesEvents(data.events || [])
+      setPiecesAvailable(true)
+    } catch {
+      setPiecesAvailable(false)
+      setPiecesEvents([])
+    } finally {
+      setPiecesLoading(false)
+    }
+  }, [includePieces, isAgentView])
+
+  useEffect(() => {
+    fetchPiecesEvents()
+  }, [fetchPiecesEvents])
+
+  useSmartPoll(fetchPiecesEvents, 45000, { enabled: autoRefresh && includePieces && !isAgentView, pauseWhenSseConnected: true })
 
   // ── Fetch sessions (for agent sidebar) ────────
   const fetchSessions = useCallback(async () => {
@@ -409,6 +448,16 @@ export function ActivityFeedPanel() {
               <option value={200}>200</option>
             </select>
           </div>
+
+          <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer pb-0.5">
+            <input
+              type="checkbox"
+              checked={includePieces}
+              onChange={(e) => setIncludePieces(e.target.checked)}
+              className="accent-primary"
+            />
+            {t('piecesToggle')}
+          </label>
         </div>
       </div>
 
@@ -429,6 +478,43 @@ export function ActivityFeedPanel() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
+        {includePieces && !isAgentView && (
+          <div className="mb-4 rounded-lg border border-pink-500/15 bg-pink-500/5 p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">{t('piecesTitle')}</h3>
+                <p className="text-xs text-muted-foreground">{t('piecesSubtitle')}</p>
+              </div>
+              <div className="text-[10px] font-mono text-pink-200/70">Pieces OS</div>
+            </div>
+
+            {piecesLoading ? (
+              <div className="text-xs text-muted-foreground">{t('piecesLoading')}</div>
+            ) : !piecesAvailable ? (
+              <div className="text-xs text-red-300">{t('piecesUnavailable')}</div>
+            ) : piecesEvents.length === 0 ? (
+              <div className="text-xs text-muted-foreground">{t('piecesEmpty')}</div>
+            ) : (
+              <div className="space-y-2">
+                {piecesEvents.slice(0, 6).map((event) => (
+                  <div key={event.id} className="rounded-md border border-pink-500/10 bg-background/40 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate text-xs font-medium text-foreground">{event.summary}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                        {event.createdAt ? formatRelativeTime(event.createdAt) : ''}
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-2 text-[10px] font-mono text-pink-100/60">
+                      {event.application && <span>{event.application}</span>}
+                      {event.category && <span>{event.category}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {loading && activities.length === 0 ? (
           <div className="flex items-center justify-center h-32">
             <Loader variant="inline" label={t('loadingActivities')} />

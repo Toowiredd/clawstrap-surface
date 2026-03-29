@@ -3,6 +3,7 @@ import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getPiecesApi } from '@/lib/pieces'
+import { normalizePiecesAsset } from '@/lib/pieces-ui'
 import {
   ApplicationNameEnum,
   PlatformEnum,
@@ -25,11 +26,12 @@ export async function GET(request: NextRequest) {
 
     if (query) {
       const results = await assets.searchAssets({ query })
-      return NextResponse.json({ assets: results.iterable ?? [], query })
+      const normalized = (results.iterable ?? []).map(normalizePiecesAsset)
+      return NextResponse.json({ assets: normalized, total: normalized.length, query })
     }
 
     const snapshot = await assets.assetsSnapshot({})
-    const items = snapshot.iterable ?? []
+    const items = (snapshot.iterable ?? []).map(normalizePiecesAsset)
     return NextResponse.json({ assets: items, total: items.length })
   } catch (err) {
     logger.error({ err }, 'GET /api/pieces/assets error')

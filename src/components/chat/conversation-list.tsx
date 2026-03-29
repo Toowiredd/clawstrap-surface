@@ -249,11 +249,13 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
       const requests: Promise<Response>[] = [
         fetch(sessionsUrl),
         fetch('/api/chat/session-prefs'),
+        fetch('/api/pieces/conversations'),
       ]
 
-      const [sessionsRes, prefsRes] = await Promise.all(requests)
+      const [sessionsRes, prefsRes, piecesRes] = await Promise.all(requests)
       const sessionsData = sessionsRes.ok ? readSessions(await sessionsRes.json()) : []
       const prefs = prefsRes.ok ? readSessionPrefs(await prefsRes.json().catch(() => null)) : {}
+      const piecesData = piecesRes.ok ? await piecesRes.json().catch(() => null) : null
 
       const providerSessions = sessionsData
         .map((s, idx: number) => {
@@ -313,8 +315,33 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
           }
         })
 
+      const piecesConversations = Array.isArray(piecesData?.conversations)
+        ? piecesData.conversations.map((conv: any) => {
+            const updatedAt = Number(conv.updatedAt || conv.createdAt || Math.floor(Date.now() / 1000))
+            const messageCount = Number(conv.messageCount || 0)
+            return {
+              id: `pieces:${conv.id}`,
+              name: conv.name || 'Pieces conversation',
+              kind: 'pieces',
+              source: 'pieces' as const,
+              participants: ['Pieces OS'],
+              lastMessage: {
+                id: Date.now() + updatedAt,
+                conversation_id: `pieces:${conv.id}`,
+                from_agent: 'Pieces OS',
+                to_agent: null,
+                content: messageCount > 0 ? `${messageCount} saved messages` : 'Open saved conversation',
+                message_type: 'system' as const,
+                created_at: updatedAt,
+              },
+              unreadCount: 0,
+              updatedAt,
+            }
+          })
+        : []
+
       setConversations(
-        providerSessions.sort((a: Conversation, b: Conversation) => b.updatedAt - a.updatedAt)
+        [...providerSessions, ...piecesConversations].sort((a: Conversation, b: Conversation) => b.updatedAt - a.updatedAt)
       )
     } catch (err) {
       log.error('Failed to load conversations:', err)
@@ -345,6 +372,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
   const localRows = filteredConversations.filter((c) => c.source === 'session' && (c.session?.sessionKind === 'claude-code' || c.session?.sessionKind === 'codex-cli' || c.session?.sessionKind === 'hermes'))
   const activeLocalRows = localRows.filter((c) => c.session?.active)
   const inactiveLocalRows = localRows.filter((c) => !c.session?.active)
+  const piecesRows = filteredConversations.filter((c) => c.source === 'pieces')
 
   function renderConversationItem(conv: Conversation) {
     const displayName = conv.name || conv.id.replace('agent_', '')
@@ -375,8 +403,11 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
             {isSessionRow && conv.session?.active && (
               <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card ${STATUS_COLORS.busy}`} />
             )}
-            {!isSessionRow && (
+            {!isSessionRow && conv.source !== 'pieces' && (
               <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card ${STATUS_COLORS.offline}`} />
+            )}
+            {conv.source === 'pieces' && (
+              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-card bg-pink-500" />
             )}
           </div>
 
@@ -385,6 +416,11 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
               <div className="flex items-center gap-1.5 min-w-0">
                 {conv.session?.colorTag && TAG_COLORS[conv.session.colorTag] && (
                   <span className={`h-2 w-2 rounded-full ${TAG_COLORS[conv.session.colorTag]}`} />
+                )}
+                {conv.source === 'pieces' && (
+                  <span className="rounded-full bg-pink-500/15 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-pink-300">
+                    Pieces
+                  </span>
                 )}
                 {isSessionRow && conv.session?.sessionKind && conv.session.sessionKind !== 'gateway' && (
                   <SessionKindPill kind={conv.session.sessionKind} />
@@ -495,6 +531,14 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
                   Recent Local
                 </div>
                 {inactiveLocalRows.map(renderConversationItem)}
+              </div>
+            )}
+            {piecesRows.length > 0 && (
+              <div>
+                <div className="px-3 pt-2 py-1 text-[10px] uppercase tracking-wider text-pink-300/70">
+                  Pieces
+                </div>
+                {piecesRows.map(renderConversationItem)}
               </div>
             )}
           </>

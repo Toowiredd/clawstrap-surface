@@ -69,6 +69,16 @@ const INTEGRATIONS: IntegrationDef[] = [
   // Dev Tools
   { id: 'github', name: 'GitHub', category: 'devtools', envVars: ['GITHUB_TOKEN'], vaultItem: 'openclaw-github-token', testable: true },
 
+  // Memory / context systems
+  {
+    id: 'pieces',
+    name: 'Pieces OS',
+    category: 'productivity',
+    envVars: ['PIECES_OS_URL'],
+    testable: true,
+    recommendation: 'Local memory/context service. Defaults to http://localhost:1000 if unset; point this at your Pieces OS instance when running remotely.',
+  },
+
   // Productivity
   {
     id: 'google_workspace',
@@ -781,6 +791,18 @@ async function handleTest(
         } catch (err: any) {
           const stderr = err.stderr?.toString() || ''
           result = { ok: false, detail: stderr.slice(0, 120) || 'Not authenticated — run `gws auth login`' }
+        }
+        break
+      }
+
+      case 'pieces': {
+        const raw = getEffectiveEnvValue(envMap, 'PIECES_OS_URL') || 'http://localhost:1000'
+        const base = raw.replace(/\/+$/, '')
+        const res = await fetch(`${base}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) }).catch(() => null)
+        if (res?.ok) {
+          result = { ok: true, detail: `Pieces OS reachable at ${base}` }
+        } else {
+          result = { ok: false, detail: `Unable to reach Pieces OS at ${base}` }
         }
         break
       }

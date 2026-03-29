@@ -3,13 +3,17 @@
 import { HealthRow, type DashboardData } from '../widget-primitives'
 
 export function GatewayHealthWidget({ data }: { data: DashboardData }) {
-  const { connection, sessions, errorCount, backlogCount, memPct, systemStats, gatewayHealthStatus } = data
+  const { connection, sessions, errorCount, backlogCount, memPct, systemStats, gatewayHealthStatus, piecesHealth, piecesAssetCount } = data
+
+  const piecesStatus = !piecesHealth ? 'warn' as const : piecesHealth.status === 'ok' ? 'good' as const : 'bad' as const
+  const piecesValue = !piecesHealth ? 'Checking...' : piecesHealth.status === 'ok' ? `${piecesAssetCount ?? '?'} assets` : 'Unreachable'
 
   return (
     <div className="panel">
       <div className="panel-header"><h3 className="text-sm font-semibold">Gateway Health + Golden Signals</h3></div>
       <div className="panel-body space-y-3">
         <HealthRow label="Gateway" value={connection.isConnected ? 'Connected' : 'Disconnected'} status={gatewayHealthStatus} />
+        <HealthRow label="Pieces OS" value={piecesValue} status={piecesStatus} />
         <HealthRow label="Traffic (sessions)" value={`${sessions.length}`} status={sessions.length > 0 ? 'good' : 'warn'} />
         <HealthRow label="Errors (24h)" value={`${errorCount}`} status={errorCount > 0 ? 'warn' : 'good'} />
         <HealthRow label="Saturation (queue)" value={`${backlogCount}`} status={backlogCount > 16 ? 'bad' : backlogCount > 8 ? 'warn' : 'good'} />

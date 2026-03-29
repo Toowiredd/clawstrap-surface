@@ -44,6 +44,8 @@ export function Dashboard() {
   const [claudeStats, setClaudeStats] = useState<ClaudeStats | null>(null)
   const [githubStats, setGithubStats] = useState<any>(null)
   const [hermesCronJobCount, setHermesCronJobCount] = useState(0)
+  const [piecesHealth, setPiecesHealth] = useState<{ status: string; version?: string } | null>(null)
+  const [piecesAssetCount, setPiecesAssetCount] = useState<number | null>(null)
   const [loading, setLoading] = useState({
     system: true,
     sessions: true,
@@ -114,6 +116,27 @@ export function Dashboard() {
     } else {
       setLoading(prev => ({ ...prev, claude: false, github: false }))
     }
+
+    // Pieces OS — always fetch (works in both local and gateway mode)
+    requests.push(
+      fetch('/api/pieces/health')
+        .then(async (res) => {
+          if (!res.ok) { setPiecesHealth({ status: 'unreachable' }); return }
+          const data = await res.json()
+          setPiecesHealth({ status: data.status, version: data.version ?? undefined })
+        })
+        .catch(() => setPiecesHealth({ status: 'unreachable' }))
+    )
+
+    requests.push(
+      fetch('/api/pieces/assets')
+        .then(async (res) => {
+          if (!res.ok) return
+          const data = await res.json()
+          setPiecesAssetCount(data.total ?? data.assets?.length ?? null)
+        })
+        .catch(() => {})
+    )
 
     await Promise.allSettled(requests)
   }, [isLocal, setSessions])
@@ -259,6 +282,8 @@ export function Dashboard() {
     hermesCronJobCount,
     subscriptionLabel,
     subscriptionPrice,
+    piecesHealth,
+    piecesAssetCount,
   }
 
   return (

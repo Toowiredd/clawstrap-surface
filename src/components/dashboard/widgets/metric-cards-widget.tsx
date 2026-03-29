@@ -41,11 +41,13 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
     errorCount,
     subscriptionLabel,
     subscriptionPrice,
+    piecesHealth,
+    piecesAssetCount,
   } = data
 
   if (isLocal) {
     return (
-      <section className="grid grid-cols-2 xl:grid-cols-6 gap-3">
+      <section className="grid grid-cols-2 xl:grid-cols-7 gap-3">
         <MetricCard
           label="Claude"
           value={isClaudeLoading ? '...' : claudeActive}
@@ -90,6 +92,13 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
           subtitle={subscriptionLabel ? `${subscriptionLabel} plan` : 'estimated'}
           icon={<CostIcon />}
           color={errorCount > 0 ? 'red' : 'green'}
+        />
+        <MetricCard
+          label="Pieces OS"
+          value={piecesHealth?.status === 'ok' ? (piecesAssetCount ?? '...') : 'Offline'}
+          subtitle={piecesHealth?.status === 'ok' ? 'saved assets' : 'not reachable'}
+          icon={<ActivityIconMini />}
+          color={piecesHealth?.status === 'ok' ? 'green' : 'red'}
         />
       </section>
     )

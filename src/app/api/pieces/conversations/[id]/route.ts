@@ -3,6 +3,8 @@ import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { getPiecesApi } from '@/lib/pieces'
+import { answerText, normalizePiecesConversation, normalizePiecesMessage } from '@/lib/pieces-ui'
+import { QGPTConversationMessageRoleEnum } from '@pieces.app/pieces-os-client'
 
 export async function GET(
   request: NextRequest,
@@ -27,8 +29,10 @@ export async function GET(
     })
 
     return NextResponse.json({
-      conversation: conv,
-      messages: messages.iterable ?? [],
+      conversation: normalizePiecesConversation(conv),
+      messages: (messages.iterable ?? [])
+        .map(normalizePiecesMessage)
+        .sort((a, b) => a.createdAt - b.createdAt),
     })
   } catch (err) {
     logger.error({ err }, 'GET /api/pieces/conversations/[id] error')
@@ -55,9 +59,18 @@ export async function POST(
       return NextResponse.json({ error: 'message is required' }, { status: 400 })
     }
 
-    const { qgpt } = getPiecesApi()
+    const { conversationMessages, qgpt } = getPiecesApi()
 
-    // Use QGPT relevance with question:true for copilot-style responses
+    await conversationMessages.messagesCreateSpecificMessage({
+      seededConversationMessage: {
+        conversation: { id },
+        role: QGPTConversationMessageRoleEnum.User,
+        fragment: {
+          string: { raw: message },
+        },
+      },
+    })
+
     const result = await qgpt.relevance({
       qGPTRelevanceInput: {
         query: message,
@@ -65,7 +78,30 @@ export async function POST(
       },
     })
 
-    return NextResponse.json({ result })
+    const answer = answerText(result)
+
+    if (answer) {
+      await conversationMessages.messagesCreateSpecificMessage({
+        seededConversationMessage: {
+          conversation: { id },
+          role: QGPTConversationMessageRoleEnum.Assistant,
+          fragment: {
+            string: { raw: answer },
+          },
+        },
+      })
+    }
+
+    const messages = await conversationMessages.messagesSnapshot({})
+    const conversationMessagesForId = (messages.iterable ?? [])
+      .map(normalizePiecesMessage)
+      .filter((item) => item.conversationId === id)
+      .sort((a, b) => a.createdAt - b.createdAt)
+
+    return NextResponse.json({
+      answer,
+      messages: conversationMessagesForId,
+    })
   } catch (err) {
     logger.error({ err }, 'POST /api/pieces/conversations/[id] error')
     return NextResponse.json({ error: 'Failed to send message' }, { status: 500 })

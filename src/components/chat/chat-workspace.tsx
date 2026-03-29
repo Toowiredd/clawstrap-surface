@@ -54,6 +54,19 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
   const selectedConversation = conversations.find((c) => c.id === activeConversation)
   const selectedSession = selectedConversation?.session
 
+  const mapPiecesMessagesToChatMessages = useCallback((messages: Array<any>) => {
+    return messages.map((msg) => ({
+      id: typeof msg.id === 'string' ? Number.parseInt(msg.id.replace(/\D/g, '').slice(-9) || '0', 10) || Date.now() : msg.id,
+      conversation_id: `pieces:${msg.conversationId}`,
+      from_agent: msg.role === 'assistant' ? 'Pieces OS' : msg.role === 'system' ? 'system' : 'human',
+      to_agent: msg.role === 'user' ? 'Pieces OS' : null,
+      content: msg.content,
+      message_type: 'text' as const,
+      created_at: msg.createdAt,
+      metadata: { piecesMessageId: msg.id, source: 'pieces' },
+    }))
+  }, [])
+
   // Detect mobile
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -93,6 +106,21 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
       return
     }
 
+    if (activeConversation.startsWith('pieces:')) {
+      try {
+        const piecesConversationId = activeConversation.replace('pieces:', '')
+        const res = await fetch(`/api/pieces/conversations/${encodeURIComponent(piecesConversationId)}`)
+        if (!res.ok) return
+        const data = await res.json()
+        if (Array.isArray(data.messages)) {
+          setChatMessages(mapPiecesMessagesToChatMessages(data.messages))
+        }
+      } catch (err) {
+        log.error('Failed to load Pieces messages:', err)
+      }
+      return
+    }
+
     try {
       const res = await fetch(`/api/chat/messages?conversation_id=${encodeURIComponent(activeConversation)}&limit=100`)
       if (!res.ok) return
@@ -101,7 +129,7 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
     } catch (err) {
       log.error('Failed to load messages:', err)
     }
-  }, [activeConversation, setChatMessages])
+  }, [activeConversation, mapPiecesMessagesToChatMessages, setChatMessages])
 
   useEffect(() => {
     loadMessages()
@@ -130,6 +158,57 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
   // Send message handler with optimistic updates
   const handleSend = async (content: string, attachments?: ChatAttachment[]) => {
     if (!activeConversation) return
+
+    if (activeConversation.startsWith('pieces:')) {
+      const piecesConversationId = activeConversation.replace('pieces:', '')
+      pendingIdRef.current -= 1
+      const tempId = pendingIdRef.current
+      addChatMessage({
+        id: tempId,
+        conversation_id: activeConversation,
+        from_agent: 'human',
+        to_agent: 'Pieces OS',
+        content,
+        message_type: 'text',
+        attachments,
+        created_at: Math.floor(Date.now() / 1000),
+        pendingStatus: 'sending',
+      })
+      setIsGenerating(true)
+      try {
+        const res = await fetch(`/api/pieces/conversations/${encodeURIComponent(piecesConversationId)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: content }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          updatePendingMessage(tempId, { pendingStatus: 'failed' })
+          return
+        }
+
+        const normalizedMessages = Array.isArray(data.messages)
+          ? mapPiecesMessagesToChatMessages(data.messages)
+          : []
+        if (normalizedMessages.length > 0) {
+          setChatMessages(normalizedMessages)
+          const lastMessage = normalizedMessages[normalizedMessages.length - 1]
+          setConversations(
+            conversations.map((conv) =>
+              conv.id === activeConversation
+                ? { ...conv, lastMessage, updatedAt: lastMessage.created_at }
+                : conv,
+            ),
+          )
+        }
+      } catch (err) {
+        log.error('Failed to send Pieces message:', err)
+        updatePendingMessage(tempId, { pendingStatus: 'failed' })
+      } finally {
+        setIsGenerating(false)
+      }
+      return
+    }
 
     const mentionMatch = content.match(/^@(\w+)\s/)
     let to = mentionMatch ? mentionMatch[1] : null
@@ -409,7 +488,7 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
                     {(selectedConversation?.name || activeConversation).replace('agent_', '')}
                   </div>
                   <div className="text-[10px] text-muted-foreground">
-                    {getConversationStatus(agents, activeConversation)}
+                    {getConversationStatus(agents, activeConversation, selectedConversation?.source)}
                   </div>
                 </div>
               </div>
@@ -760,7 +839,10 @@ function AgentAvatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' }
   )
 }
 
-function getConversationStatus(agents: Array<{ name: string; status: string }>, conversationId: string): string {
+function getConversationStatus(agents: Array<{ name: string; status: string }>, conversationId: string, source?: Conversation['source']): string {
+  if (source === 'pieces' || conversationId.startsWith('pieces:')) {
+    return 'Pieces memory conversation'
+  }
   if (conversationId.startsWith('session:')) {
     if (conversationId.includes('claude-code')) return 'Local Claude session'
     if (conversationId.includes('codex-cli')) return 'Local Codex session'

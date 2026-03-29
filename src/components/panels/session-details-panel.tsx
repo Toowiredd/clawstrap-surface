@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { useClawstrap } from '@/store'
@@ -13,6 +13,18 @@ type TimeWindow = '1h' | '6h' | '24h' | '7d' | 'all'
 type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 type VerboseLevel = 'off' | 'on' | 'full'
 type ReasoningLevel = 'off' | 'on' | 'stream'
+
+interface PiecesHealthState {
+  status?: string
+}
+
+interface PiecesSummary {
+  id: string
+  summary: string
+  score?: number
+  createdAt?: number
+  conversation?: { id?: string; name?: string }
+}
 
 const selectClass =
   'px-2 py-1 border border-border rounded bg-background text-foreground text-xs focus:outline-none focus:ring-2 focus:ring-primary/50'
@@ -49,6 +61,9 @@ export function SessionDetailsPanel() {
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('all')
   const [includeGlobal, setIncludeGlobal] = useState(true)
   const [includeUnknown, setIncludeUnknown] = useState(true)
+  const [piecesHealth, setPiecesHealth] = useState<PiecesHealthState | null>(null)
+  const [piecesSummaries, setPiecesSummaries] = useState<PiecesSummary[]>([])
+  const [piecesLoading, setPiecesLoading] = useState(false)
 
   // Inline label editing
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
@@ -211,6 +226,26 @@ export function SessionDetailsPanel() {
       loadSessions()
     }
   }
+
+  const loadPiecesContext = useCallback(async () => {
+    try {
+      setPiecesLoading(true)
+      const [healthRes, summariesRes] = await Promise.all([
+        fetch('/api/pieces/health').then((r) => r.json()).catch(() => ({ status: 'unreachable' })),
+        fetch('/api/pieces/summaries?limit=5').then((r) => (r.ok ? r.json() : { summaries: [] })).catch(() => ({ summaries: [] })),
+      ])
+      setPiecesHealth(healthRes)
+      setPiecesSummaries(summariesRes.summaries || [])
+    } finally {
+      setPiecesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadPiecesContext()
+  }, [loadPiecesContext])
+
+  useSmartPoll(loadPiecesContext, 90000, { pauseWhenConnected: true })
 
   return (
     <div className="p-6 space-y-6">
@@ -662,6 +697,37 @@ export function SessionDetailsPanel() {
 
         {/* Session Summary */}
         <div className="space-y-6">
+          <div className="bg-card border border-border rounded-lg p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">{t('piecesMemoryTitle')}</h2>
+              <span className={`rounded px-2 py-1 text-[10px] font-mono ${piecesHealth?.status === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-300'}`}>
+                {piecesHealth?.status === 'ok' ? t('piecesConnected') : t('piecesUnavailable')}
+              </span>
+            </div>
+
+            {piecesLoading ? (
+              <div className="text-sm text-muted-foreground">{t('loading')}</div>
+            ) : (
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">{t('piecesRecentSummaries')}</div>
+                {piecesSummaries.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">{t('piecesNoSummaries')}</div>
+                ) : (
+                  piecesSummaries.map((summary) => (
+                    <div key={summary.id} className="rounded-md border border-pink-500/10 bg-pink-500/5 p-3">
+                      <div className="text-sm text-foreground">{summary.summary}</div>
+                      <div className="mt-1 flex flex-wrap gap-3 text-[11px] font-mono text-muted-foreground/70">
+                        {summary.conversation?.name && <span>{summary.conversation.name}</span>}
+                        {typeof summary.score === 'number' && <span>{t('piecesScore', { score: summary.score })}</span>}
+                        {summary.createdAt && <span>{new Date(summary.createdAt * 1000).toLocaleString()}</span>}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="bg-card border border-border rounded-lg p-6">
             <h2 className="text-xl font-semibold mb-4">{t('sessionOverview')}</h2>
 

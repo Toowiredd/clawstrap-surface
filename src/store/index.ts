@@ -233,7 +233,7 @@ export interface Conversation {
   id: string
   name?: string
   kind?: string
-  source?: 'chat' | 'session'
+  source?: 'chat' | 'session' | 'pieces'
   session?: {
     prefKey?: string
     sessionId: string

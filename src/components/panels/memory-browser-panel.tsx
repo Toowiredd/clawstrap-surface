@@ -124,7 +124,13 @@ export function MemoryBrowserPanel() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
-  const [activeView, setActiveView] = useState<'files' | 'graph' | 'health' | 'pipeline' | 'hermes'>(!isLocal ? 'graph' : 'files')
+  const [activeView, setActiveView] = useState<'files' | 'graph' | 'health' | 'pipeline' | 'hermes' | 'pieces'>(!isLocal ? 'graph' : 'files')
+  const [piecesAssets, setPiecesAssets] = useState<Array<{ id: string; name: string; createdAt?: number; createdAtIso?: string; updatedAt?: number; preview?: string; content?: string; classification?: string; application?: string }>>([])
+  const [piecesLoading, setPiecesLoading] = useState(false)
+  const [piecesSearchResults, setPiecesSearchResults] = useState<Array<{ id: string; name: string; createdAt?: number; preview?: string }>>([])
+  const [piecesSearchAnswer, setPiecesSearchAnswer] = useState<string | null>(null)
+  const [piecesError, setPiecesError] = useState<string | null>(null)
+  const [selectedPiecesAssetId, setSelectedPiecesAssetId] = useState<string | null>(null)
   const [hermesMemory, setHermesMemory] = useState<{ agentMemory: string | null; userMemory: string | null; agentMemorySize: number; userMemorySize: number; agentMemoryEntries: number; userMemoryEntries: number } | null>(null)
   const [hermesInstalled, setHermesInstalled] = useState<boolean | null>(null)
   const [isLoadingHermes, setIsLoadingHermes] = useState(false)
@@ -234,16 +240,49 @@ export function MemoryBrowserPanel() {
     if (!searchQuery.trim()) return
     setIsSearching(true)
     try {
-      const response = await fetch(`/api/memory?action=search&query=${encodeURIComponent(searchQuery)}`)
-      const data = await response.json()
-      setSearchResults(data.results || [])
+      const [localRes, piecesRes] = await Promise.allSettled([
+        fetch(`/api/memory?action=search&query=${encodeURIComponent(searchQuery)}`).then(r => r.json()),
+        fetch(`/api/pieces/search?mode=hybrid&q=${encodeURIComponent(searchQuery)}`).then(r => r.ok ? r.json() : null),
+      ])
+      setSearchResults(localRes.status === 'fulfilled' ? (localRes.value.results || []) : [])
+      setPiecesSearchResults(piecesRes.status === 'fulfilled' && piecesRes.value ? (piecesRes.value.assets || []) : [])
+      setPiecesSearchAnswer(piecesRes.status === 'fulfilled' && piecesRes.value ? (piecesRes.value.answer || null) : null)
     } catch (error) {
       log.error('Search failed:', error)
       setSearchResults([])
+      setPiecesSearchResults([])
+      setPiecesSearchAnswer(null)
     } finally {
       setIsSearching(false)
     }
   }
+
+  const loadPiecesAssets = useCallback(async () => {
+    setPiecesLoading(true)
+    setPiecesError(null)
+    try {
+      const res = await fetch('/api/pieces/assets')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setPiecesAssets([])
+        setPiecesError(data.error || 'Pieces OS is unavailable')
+        return
+      }
+      const data = await res.json()
+      setPiecesAssets(data.assets || [])
+      setSelectedPiecesAssetId((current) => current ?? data.assets?.[0]?.id ?? null)
+    } catch {
+      setPiecesAssets([])
+      setPiecesError('Pieces OS is unavailable')
+    } finally {
+      setPiecesLoading(false)
+    }
+  }, [])
+
+  const selectedPiecesAsset = useMemo(
+    () => piecesAssets.find((asset) => asset.id === selectedPiecesAssetId) ?? piecesAssets[0] ?? null,
+    [piecesAssets, selectedPiecesAssetId],
+  )
 
   const toggleFolder = async (folderPath: string, needsChildren: boolean) => {
     if (!expandedFolders.has(folderPath) && needsChildren) {
@@ -360,6 +399,12 @@ export function MemoryBrowserPanel() {
         .finally(() => setIsLoadingHermes(false))
     }
   }, [activeView, hermesMemory, isLoadingHermes])
+
+  useEffect(() => {
+    if (activeView === 'pieces' && piecesAssets.length === 0 && !piecesLoading) {
+      loadPiecesAssets()
+    }
+  }, [activeView, piecesAssets.length, piecesLoading, loadPiecesAssets])
 
   const runPipelineAction = async (action: string) => {
     setIsRunningPipeline(true)
@@ -530,7 +575,7 @@ export function MemoryBrowserPanel() {
     return elements
   }
 
-  const viewTabs = ['files', ...(!isLocal ? ['graph'] : []), 'health', 'pipeline', ...(hermesInstalled ? ['hermes'] : [])] as const
+  const viewTabs = ['files', ...(!isLocal ? ['graph'] : []), 'health', 'pipeline', ...(hermesInstalled ? ['hermes'] : []), 'pieces'] as const
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col overflow-hidden">
@@ -584,6 +629,24 @@ export function MemoryBrowserPanel() {
                 </div>
               </div>
             )}
+            {piecesSearchResults.length > 0 && (
+              <div className="px-2 pb-2 border-b border-border/50">
+                <div className="text-[10px] text-pink-400/60 font-mono mb-1">Pieces ({piecesSearchResults.length})</div>
+                <div className="max-h-28 overflow-y-auto space-y-px">
+                  {piecesSearchResults.map((a, i) => (
+                    <div key={i} className="flex items-center gap-1.5 py-1 px-1.5 rounded text-xs font-mono text-muted-foreground cursor-pointer hover:bg-[hsl(var(--surface-2))]" onClick={() => { setSelectedPiecesAssetId(a.id); setActiveView('pieces') }}>
+                      <span className="truncate flex-1">{a.name || 'Snippet'}</span>
+                      <span className="text-[10px] text-pink-400/40">pieces</span>
+                    </div>
+                  ))}
+                </div>
+                {piecesSearchAnswer && (
+                  <div className="mt-2 rounded border border-pink-500/15 bg-pink-500/5 px-2 py-1.5 text-[11px] font-mono text-pink-100/80">
+                    {piecesSearchAnswer}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto py-1">
               {isLoading ? (
                 <div className="flex items-center justify-center h-20"><Loader variant="inline" /></div>
@@ -608,6 +671,68 @@ export function MemoryBrowserPanel() {
           ) : activeView === 'hermes' ? (
             <div className="flex-1 overflow-auto p-6">
               <HermesMemoryView data={hermesMemory} isLoading={isLoadingHermes} onRefresh={() => { setHermesMemory(null); setIsLoadingHermes(false) }} />
+            </div>
+          ) : activeView === 'pieces' ? (
+            <div className="flex-1 overflow-auto p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">{t('piecesTitle')}</h3>
+                  <p className="text-xs text-muted-foreground">{t('piecesSubtitle')}</p>
+                </div>
+                <button onClick={loadPiecesAssets} className="px-2 py-1 text-xs font-mono text-muted-foreground hover:text-foreground rounded hover:bg-[hsl(var(--surface-2))] transition-colors">Refresh</button>
+              </div>
+              {piecesLoading ? (
+                <div className="flex items-center justify-center py-12"><Loader variant="inline" /></div>
+              ) : piecesError ? (
+                <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-300">
+                  <div className="font-medium">{t('piecesUnavailableTitle')}</div>
+                  <div className="mt-1 text-xs text-red-200/80">{piecesError}</div>
+                </div>
+              ) : piecesAssets.length === 0 ? (
+                <div className="text-center py-12">
+                  <span className="text-3xl font-mono text-muted-foreground/20 block mb-2">~</span>
+                  <span className="text-sm font-mono text-muted-foreground/40">{t('piecesEmpty')}</span>
+                </div>
+              ) : (
+                <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+                  <div className="space-y-2">
+                    {piecesAssets.map((asset) => (
+                      <button
+                        key={asset.id}
+                        onClick={() => setSelectedPiecesAssetId(asset.id)}
+                        className={`w-full rounded-lg border p-3 text-left transition-colors ${selectedPiecesAsset?.id === asset.id ? 'border-pink-500/40 bg-pink-500/10' : 'border-border/50 bg-[hsl(var(--surface-1))] hover:border-pink-500/20'}`}
+                      >
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="truncate text-xs font-semibold text-foreground/80">{asset.name}</span>
+                          <span className="shrink-0 text-[10px] font-mono text-muted-foreground/40">{asset.createdAt ? new Date(asset.createdAt * 1000).toLocaleDateString() : ''}</span>
+                        </div>
+                        {asset.preview && (
+                          <div className="line-clamp-3 text-[11px] font-mono text-foreground/60">{asset.preview}</div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="min-h-[320px] rounded-lg border border-border/50 bg-[hsl(var(--surface-1))] p-4">
+                    {selectedPiecesAsset ? (
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between gap-3">
+                            <h4 className="text-sm font-semibold text-foreground">{selectedPiecesAsset.name}</h4>
+                            {selectedPiecesAsset.classification && <span className="rounded bg-pink-500/10 px-2 py-0.5 text-[10px] font-mono text-pink-200">{selectedPiecesAsset.classification}</span>}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-3 text-[11px] font-mono text-muted-foreground/60">
+                            {selectedPiecesAsset.application && <span>{selectedPiecesAsset.application}</span>}
+                            {selectedPiecesAsset.createdAt && <span>{new Date(selectedPiecesAsset.createdAt * 1000).toLocaleString()}</span>}
+                          </div>
+                        </div>
+                        <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap break-words rounded border border-border/30 bg-[hsl(var(--surface-0))] p-3 text-[12px] font-mono leading-relaxed text-foreground/80">{selectedPiecesAsset.content || selectedPiecesAsset.preview || t('piecesNoPreview')}</pre>
+                      </div>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs font-mono text-muted-foreground/40">{t('piecesSelectPrompt')}</div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex-1 flex min-h-0">

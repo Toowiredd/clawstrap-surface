@@ -477,6 +477,7 @@ function IntegrationCard({
 
   const hasEdits = Object.keys(integration.envVars).some(k => edits[k] !== undefined)
   const hasSetVars = Object.values(integration.envVars).some(v => v.set)
+  const canTest = integration.testable && (hasSetVars || integration.id === 'pieces')
 
   return (
     <div className={`bg-card border rounded-lg p-4 transition-colors ${
@@ -516,7 +517,7 @@ function IntegrationCard({
           )}
 
           {/* Test connection */}
-          {integration.testable && hasSetVars && (
+          {canTest && (
             <Button
               onClick={onTest}
               disabled={testing}
