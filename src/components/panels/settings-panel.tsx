@@ -41,6 +41,8 @@ interface CoordinatorTargetAgent {
 type CoordinatorSession = GatewaySession & { source?: string }
 
 const COORDINATOR_AGENT = (process.env.NEXT_PUBLIC_COORDINATOR_AGENT || 'coordinator').toLowerCase()
+const HOOK_PROFILE_SETTING_KEY = 'profiles.hook_profile'
+const LEGACY_HOOK_PROFILE_SETTING_KEYS = ['hook_profile', 'security_profile', 'security.hook_profile'] as const
 
 function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[] {
   const out: CoordinatorTargetAgent[] = []
@@ -206,7 +208,9 @@ export function SettingsPanel() {
       setSettings(data.settings || [])
       setGrouped(data.grouped || {})
       // Load hook profile from settings
-      const hpSetting = (data.settings || []).find((s: Setting) => s.key === 'hook_profile')
+      const hpSetting = (data.settings || []).find((s: Setting) =>
+        s.key === HOOK_PROFILE_SETTING_KEY || LEGACY_HOOK_PROFILE_SETTING_KEYS.includes(s.key as (typeof LEGACY_HOOK_PROFILE_SETTING_KEYS)[number])
+      )
       if (hpSetting) setHookProfile(hpSetting.value)
 
       // Load agent options for coordinator routing dropdown
@@ -810,9 +814,9 @@ export function SettingsPanel() {
                     setHookProfileSaving(true)
                     try {
                       const res = await fetch('/api/settings', {
-                        method: 'POST',
+                        method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ key: 'hook_profile', value: profile.value }),
+                        body: JSON.stringify({ settings: { [HOOK_PROFILE_SETTING_KEY]: profile.value } }),
                       })
                       if (res.ok) {
                         showFeedback(true, `Hook profile set to ${profile.label}`)
@@ -857,7 +861,7 @@ export function SettingsPanel() {
 
       {/* Settings list for active category */}
       <div className="space-y-3">
-        {activeCategory !== 'security' && (grouped[activeCategory] || []).map(setting => {
+        {activeCategory !== 'security' && (grouped[activeCategory] || []).filter(setting => setting.key !== HOOK_PROFILE_SETTING_KEY).map(setting => {
           const currentValue = edits[setting.key] ?? setting.value
           const isChanged = edits[setting.key] !== undefined && edits[setting.key] !== setting.value
           const isBooleanish = setting.value === 'true' || setting.value === 'false'

@@ -45,6 +45,11 @@ const EVENT_MAP: Record<string, string> = {
   'task.status_changed': 'activity.task_status_changed',
 }
 
+const webhookGlobal = globalThis as typeof globalThis & {
+  __mcWebhookEventListenerAttached?: boolean
+  __mcWebhookEventListener?: ((event: ServerEvent) => void) | null
+}
+
 /**
  * Compute the next retry delay in seconds, with ±20% jitter.
  */
@@ -86,7 +91,11 @@ export function verifyWebhookSignature(
  * Called once during server initialization.
  */
 export function initWebhookListener() {
-  eventBus.on('server-event', (event: ServerEvent) => {
+  if (webhookGlobal.__mcWebhookEventListenerAttached) {
+    return
+  }
+
+  const listener = (event: ServerEvent) => {
     const mapping = EVENT_MAP[event.type]
     if (!mapping) return
 
@@ -115,7 +124,11 @@ export function initWebhookListener() {
         logger.error({ err }, 'Webhook dispatch error')
       })
     }
-  })
+  }
+
+  eventBus.on('server-event', listener)
+  webhookGlobal.__mcWebhookEventListener = listener
+  webhookGlobal.__mcWebhookEventListenerAttached = true
 }
 
 /**

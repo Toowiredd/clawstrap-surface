@@ -67,8 +67,22 @@ const baseEnv = {
   MC_SKILLS_PROJECT_AGENTS_DIR: path.join(skillsRoot, 'project-agents'),
   MC_SKILLS_PROJECT_CODEX_DIR: path.join(skillsRoot, 'project-codex'),
   MC_SKILLS_OPENCLAW_DIR: path.join(skillsRoot, 'openclaw'),
-  PATH: `${mockBinDir}:${process.env.PATH || ''}`,
+  PATH: `${mockBinDir}${path.delimiter}${process.env.PATH || ''}`,
   E2E_GATEWAY_EXPECTED: mode === 'gateway' ? '1' : '0',
+}
+
+async function runCommand(command, args, options) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, options)
+    child.on('error', reject)
+    child.on('exit', (code, signal) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+      reject(new Error(`command failed: ${command} ${args.join(' ')} (code=${code ?? 'null'}, signal=${signal ?? 'none'})`))
+    })
+  })
 }
 
 const children = []
@@ -97,21 +111,29 @@ if (mode === 'gateway') {
 }
 
 const standaloneServerPath = path.join(repoRoot, '.next', 'standalone', 'server.js')
-app = fs.existsSync(standaloneServerPath)
-  ? spawn('node', [standaloneServerPath], {
-      cwd: repoRoot,
-      env: {
-        ...baseEnv,
-        HOSTNAME: '127.0.0.1',
-        PORT: '3005',
-      },
-      stdio: 'inherit',
-    })
-  : spawn('pnpm', ['start'], {
-      cwd: repoRoot,
-      env: baseEnv,
-      stdio: 'inherit',
-    })
+const nextCliPath = path.join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next')
+if (!fs.existsSync(standaloneServerPath)) {
+  process.stdout.write('[openclaw-e2e] standalone build missing, running Next build...\n')
+  await runCommand(process.execPath, [nextCliPath, 'build'], {
+    cwd: repoRoot,
+    env: baseEnv,
+    stdio: 'inherit',
+  })
+}
+
+if (!fs.existsSync(standaloneServerPath)) {
+  throw new Error(`[openclaw-e2e] standalone server not found at ${standaloneServerPath} after build`)
+}
+
+app = spawn('node', [standaloneServerPath], {
+  cwd: repoRoot,
+  env: {
+    ...baseEnv,
+    HOSTNAME: '127.0.0.1',
+    PORT: '3005',
+  },
+  stdio: 'inherit',
+})
 children.push(app)
 
 function shutdown(signal = 'SIGTERM') {

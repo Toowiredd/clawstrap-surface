@@ -54,6 +54,54 @@ $env:PORT     = if ($env:PORT)     { $env:PORT }     else { "3000" }
 $env:NODE_ENV = if ($env:NODE_ENV) { $env:NODE_ENV } else { "production" }
 $env:HOSTNAME = if ($env:HOSTNAME) { $env:HOSTNAME } else { "0.0.0.0" }
 
+function Test-UnresolvedOpenClawToken {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    $trimmed = $Value.Trim()
+    return (
+        $trimmed -match '^\$\{[A-Za-z_][A-Za-z0-9_]*\}$' -or
+        $trimmed -match '^\$[A-Za-z_][A-Za-z0-9_]*$' -or
+        $trimmed -match '^%[A-Za-z_][A-Za-z0-9_]*%$'
+    )
+}
+
+if (Test-UnresolvedOpenClawToken $env:OPENCLAW_STATE_DIR) {
+    Remove-Item Env:OPENCLAW_STATE_DIR -ErrorAction SilentlyContinue
+}
+if (Test-UnresolvedOpenClawToken $env:OPENCLAW_CONFIG_PATH) {
+    Remove-Item Env:OPENCLAW_CONFIG_PATH -ErrorAction SilentlyContinue
+}
+if (Test-UnresolvedOpenClawToken $env:OPENCLAW_HOME) {
+    Remove-Item Env:OPENCLAW_HOME -ErrorAction SilentlyContinue
+}
+
+# Normalize OpenClaw env wiring so runtime and CLI share the same active profile.
+$resolvedStateDir = $env:OPENCLAW_STATE_DIR
+if ([string]::IsNullOrWhiteSpace($resolvedStateDir)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:OPENCLAW_CONFIG_PATH)) {
+        $resolvedStateDir = Split-Path -Parent $env:OPENCLAW_CONFIG_PATH
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:OPENCLAW_HOME)) {
+        $normalizedHome = [System.IO.Path]::GetFullPath($env:OPENCLAW_HOME)
+        if ((Split-Path -Leaf $normalizedHome).ToLowerInvariant() -eq ".openclaw") {
+            $resolvedStateDir = $normalizedHome
+            $env:OPENCLAW_HOME = Split-Path -Parent $normalizedHome
+        } else {
+            $resolvedStateDir = Join-Path $normalizedHome ".openclaw"
+            $env:OPENCLAW_HOME = $normalizedHome
+        }
+    } else {
+        $env:OPENCLAW_HOME = $env:USERPROFILE
+        $resolvedStateDir = Join-Path $env:USERPROFILE ".openclaw"
+    }
+}
+$env:OPENCLAW_STATE_DIR = $resolvedStateDir
+if ([string]::IsNullOrWhiteSpace($env:OPENCLAW_CONFIG_PATH)) {
+    $env:OPENCLAW_CONFIG_PATH = Join-Path $resolvedStateDir "openclaw.json"
+}
+if ([string]::IsNullOrWhiteSpace($env:OPENCLAW_HOME)) {
+    $env:OPENCLAW_HOME = Split-Path -Parent $resolvedStateDir
+}
+
 Write-Host "Starting Clawstrap Control Surface..." -ForegroundColor Cyan
 Write-Host "  URL:      http://localhost:$($env:PORT)" -ForegroundColor Cyan
 Write-Host "  NODE_ENV: $($env:NODE_ENV)" -ForegroundColor Cyan

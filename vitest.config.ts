@@ -9,7 +9,9 @@ export default defineConfig(async () => {
   return {
     plugins: [react(), tsconfigPaths()],
     test: {
-      environment: 'jsdom',
+      // Most tests exercise server/runtime code paths and require Node builtins.
+      // UI-focused tests can opt into jsdom with @vitest-environment in-file directives.
+      environment: 'node',
       globals: true,
       setupFiles: ['src/test/setup.ts'],
       include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],

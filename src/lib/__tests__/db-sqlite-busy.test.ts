@@ -34,6 +34,15 @@ describe('SQLite busy_timeout pragma', () => {
     vi.resetModules()
     mockPragma.mockClear()
     MockDatabase.mockClear()
+    const globalDbState = globalThis as typeof globalThis & {
+      __mcDb?: unknown
+      __mcWebhookListenerInitialized?: boolean
+      __mcSchedulerInitialized?: boolean
+      __mcDbSignalHandlersRegistered?: boolean
+    }
+    globalDbState.__mcDb = null
+    globalDbState.__mcWebhookListenerInitialized = false
+    globalDbState.__mcSchedulerInitialized = false
   })
 
   it('sets busy_timeout = 5000 on database initialization', async () => {

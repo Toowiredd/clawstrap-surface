@@ -261,11 +261,12 @@ function ensureProvisionArtifacts(job: any) {
 
   const artifactDir = getProvisionArtifactDir(slug)
   fs.mkdirSync(artifactDir, { recursive: true })
+  const openclawHomeRoot = path.posix.dirname(openclawHome)
 
   const gatewayEnv = [
     `TENANT_SLUG=${slug}`,
     `TENANT_USER=${linuxUser}`,
-    `OPENCLAW_HOME=${openclawHome}`,
+    `OPENCLAW_HOME=${openclawHomeRoot}`,
     `OPENCLAW_STATE_DIR=${openclawHome}`,
     `OPENCLAW_CONFIG_PATH=${openclawHome}/openclaw.json`,
     `OPENCLAW_GATEWAY_PORT=${gatewayPort}`,

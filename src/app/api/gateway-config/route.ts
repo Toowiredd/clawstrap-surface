@@ -6,6 +6,8 @@ import { config } from '@/lib/config'
 import { validateBody, gatewayConfigUpdateSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
+import { callOpenClawGateway } from '@/lib/openclaw-gateway'
+import { runOpenClaw } from '@/lib/command'
 
 function getConfigPath(): string | null {
   return config.openclawConfigPath || null
@@ -194,40 +196,184 @@ export async function PUT(request: NextRequest) {
 }
 
 async function applyConfig(request: NextRequest, auth: any): Promise<NextResponse> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10000)
-  try {
-    const res = await fetch(gatewayUrl('/api/config/apply'), {
-      method: 'POST',
-      signal: controller.signal,
-      headers: gatewayHeaders(),
-    })
-    clearTimeout(timeout)
+  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const configPath = getConfigPath()
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const localRaw = await readConfigRaw(configPath)
+  const rpcResult = await tryApplyConfigViaRpc(localRaw)
+  if (rpcResult.ok) {
     logAuditEvent({
       action: 'gateway_config_apply',
       actor: auth.user.username,
       actor_id: auth.user.id,
-      detail: { status: res.status },
+      detail: { status: 200, transport: 'rpc' },
       ip_address: ipAddress,
     })
+    return NextResponse.json({ ok: true, ...rpcResult.data })
+  }
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      return NextResponse.json(
-        { error: `Apply failed (${res.status}): ${text}` },
-        { status: 502 },
-      )
+  const legacyResult = await tryApplyConfigViaLegacyHttp()
+  if (legacyResult.ok) {
+    logAuditEvent({
+      action: 'gateway_config_apply',
+      actor: auth.user.username,
+      actor_id: auth.user.id,
+      detail: { status: 200, transport: 'legacy_http', path: legacyResult.path },
+      ip_address: ipAddress,
+    })
+    return NextResponse.json({ ok: true, ...legacyResult.data })
+  }
+
+  const cliRestartResult = await tryApplyViaCliRestart()
+  if (cliRestartResult.ok) {
+    logAuditEvent({
+      action: 'gateway_config_apply',
+      actor: auth.user.username,
+      actor_id: auth.user.id,
+      detail: { status: 200, transport: 'cli_restart' },
+      ip_address: ipAddress,
+    })
+    return NextResponse.json({
+      ok: true,
+      mode: 'cli_restart',
+      message: 'Gateway restarted as fallback after apply call failures',
+      output: cliRestartResult.stdout,
+    })
+  }
+
+  logAuditEvent({
+    action: 'gateway_config_apply',
+    actor: auth.user.username,
+    actor_id: auth.user.id,
+    detail: { status: 502, transport: 'rpc+legacy_http' },
+    ip_address: ipAddress,
+  })
+  return NextResponse.json(
+    { error: `Apply failed: ${rpcResult.error}; ${legacyResult.error}; ${cliRestartResult.error}` },
+    { status: 502 },
+  )
+}
+
+async function readConfigRaw(configPath: string | null): Promise<string | null> {
+  if (!configPath) return null
+  try {
+    const { readFile } = require('fs/promises')
+    return await readFile(configPath, 'utf-8')
+  } catch {
+    return null
+  }
+}
+
+type RpcApplyResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; error: string }
+
+async function tryApplyConfigViaRpc(_localRaw: string | null): Promise<RpcApplyResult> {
+  type ConfigGetResult = { raw?: string; hash?: string }
+
+  let rpcGetError = ''
+  let baseHash: string | undefined
+  let effectiveRaw: string | null = null
+
+  try {
+    const current = await callOpenClawGateway<ConfigGetResult>('config.get', {}, 10_000)
+    if (typeof current?.hash === 'string' && current.hash.length > 0) {
+      baseHash = current.hash
     }
-    const data = await res.json().catch(() => ({}))
-    return NextResponse.json({ ok: true, ...data })
-  } catch (err: any) {
-    clearTimeout(timeout)
-    return NextResponse.json(
-      { error: err.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable' },
-      { status: 502 },
-    )
+    if (typeof current?.raw === 'string' && current.raw.length > 0) {
+      // Prefer gateway-provided raw so config.apply receives the exact format
+      // and content expected by the running gateway instance.
+      effectiveRaw = current.raw
+    }
+  } catch (err) {
+    rpcGetError = stringifyError(err)
+  }
+
+  if (!effectiveRaw) {
+    return {
+      ok: false,
+      error: rpcGetError ? `RPC config.get failed: ${rpcGetError}` : 'RPC apply failed: config payload unavailable',
+    }
+  }
+
+  try {
+    const compactRaw = compactJsonIfPossible(effectiveRaw)
+    const params: Record<string, unknown> = { raw: compactRaw }
+    if (baseHash) params.baseHash = baseHash
+    const applied = await callOpenClawGateway<unknown>('config.apply', params, 15_000)
+    if (applied && typeof applied === 'object') {
+      return { ok: true, data: applied as Record<string, unknown> }
+    }
+    return { ok: true, data: { result: applied } }
+  } catch (err) {
+    return { ok: false, error: `RPC config.apply failed: ${stringifyError(err)}` }
+  }
+}
+
+type LegacyHttpApplyResult =
+  | { ok: true; path: string; data: Record<string, unknown> }
+  | { ok: false; error: string }
+
+async function tryApplyConfigViaLegacyHttp(): Promise<LegacyHttpApplyResult> {
+  const paths = ['/api/config/apply', '/api/config/reload']
+  let lastError = 'Gateway unreachable'
+
+  for (const path of paths) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10_000)
+    try {
+      const res = await fetch(gatewayUrl(path), {
+        method: 'POST',
+        signal: controller.signal,
+        headers: gatewayHeaders(),
+      })
+
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}))
+        return { ok: true, path, data }
+      }
+
+      const text = await res.text().catch(() => '')
+      if (res.status === 404) {
+        lastError = `Legacy apply endpoint not found (${path})`
+      } else {
+        lastError = `Apply failed (${res.status}): ${text}`
+        break
+      }
+    } catch (err: any) {
+      lastError = err?.name === 'AbortError' ? 'Gateway timeout' : 'Gateway unreachable'
+      break
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  return { ok: false, error: lastError }
+}
+
+function stringifyError(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
+function compactJsonIfPossible(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw))
+  } catch {
+    return raw
+  }
+}
+
+type CliRestartResult =
+  | { ok: true; stdout: string }
+  | { ok: false; error: string }
+
+async function tryApplyViaCliRestart(): Promise<CliRestartResult> {
+  try {
+    const result = await runOpenClaw(['gateway', 'restart'], { timeoutMs: 20_000 })
+    return { ok: true, stdout: `${result.stdout || ''}${result.stderr || ''}`.trim() }
+  } catch (err) {
+    return { ok: false, error: `CLI restart failed: ${stringifyError(err)}` }
   }
 }
 

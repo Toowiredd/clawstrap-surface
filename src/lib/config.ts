@@ -8,6 +8,16 @@ function clampInt(value: number, min: number, max: number, fallback: number): nu
   return Math.max(min, Math.min(max, Math.floor(value)))
 }
 
+function isUnresolvedEnvToken(value: string): boolean {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return false
+  return (
+    /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(trimmed) ||
+    /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed) ||
+    /^%[A-Za-z_][A-Za-z0-9_]*%$/.test(trimmed)
+  )
+}
+
 const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build'
 const defaultDataDir = path.join(process.cwd(), '.data')
 const configuredDataDir = process.env.MISSION_CONTROL_DATA_DIR || defaultDataDir
@@ -28,23 +38,70 @@ const resolvedTokensPath = isBuildPhase
   : (process.env.MISSION_CONTROL_TOKENS_PATH ||
       path.join(resolvedDataDir, 'mission-control-tokens.json'))
 const defaultOpenClawStateDir = path.join(os.homedir(), '.openclaw')
-const explicitOpenClawConfigPath =
+const explicitOpenClawStateDirRaw =
+  process.env.OPENCLAW_STATE_DIR ||
+  process.env.CLAWDBOT_STATE_DIR ||
+  ''
+const explicitOpenClawStateDir = isUnresolvedEnvToken(explicitOpenClawStateDirRaw)
+  ? ''
+  : explicitOpenClawStateDirRaw
+const explicitOpenClawConfigPathRaw =
   process.env.OPENCLAW_CONFIG_PATH ||
   process.env.MISSION_CONTROL_OPENCLAW_CONFIG_PATH ||
   ''
-const legacyOpenClawHome =
+const explicitOpenClawConfigPath = isUnresolvedEnvToken(explicitOpenClawConfigPathRaw)
+  ? ''
+  : explicitOpenClawConfigPathRaw
+const legacyOpenClawHomeEnvRaw =
   process.env.OPENCLAW_HOME ||
   process.env.CLAWDBOT_HOME ||
   process.env.MISSION_CONTROL_OPENCLAW_HOME ||
   ''
-const openclawStateDir =
-  process.env.OPENCLAW_STATE_DIR ||
-  process.env.CLAWDBOT_STATE_DIR ||
-  legacyOpenClawHome ||
-  (explicitOpenClawConfigPath ? path.dirname(explicitOpenClawConfigPath) : defaultOpenClawStateDir)
+const legacyOpenClawHomeRaw = isUnresolvedEnvToken(legacyOpenClawHomeEnvRaw)
+  ? ''
+  : legacyOpenClawHomeEnvRaw
+
+const normalizedLegacyOpenClawHome = legacyOpenClawHomeRaw ? path.resolve(legacyOpenClawHomeRaw) : ''
+const legacyHomeLooksLikeStateDir =
+  Boolean(normalizedLegacyOpenClawHome) &&
+  path.basename(normalizedLegacyOpenClawHome).toLowerCase() === '.openclaw'
+
+const openclawStateDir = explicitOpenClawStateDir
+  ? path.resolve(explicitOpenClawStateDir)
+  : explicitOpenClawConfigPath
+    ? path.dirname(path.resolve(explicitOpenClawConfigPath))
+    : normalizedLegacyOpenClawHome
+      ? (legacyHomeLooksLikeStateDir
+          ? normalizedLegacyOpenClawHome
+          : path.join(normalizedLegacyOpenClawHome, '.openclaw'))
+      : defaultOpenClawStateDir
+
 const openclawConfigPath =
-  explicitOpenClawConfigPath ||
-  path.join(openclawStateDir, 'openclaw.json')
+  explicitOpenClawConfigPath
+    ? path.resolve(explicitOpenClawConfigPath)
+    : path.join(openclawStateDir, 'openclaw.json')
+
+const openclawHomeRoot = normalizedLegacyOpenClawHome
+  ? (legacyHomeLooksLikeStateDir ? path.dirname(normalizedLegacyOpenClawHome) : normalizedLegacyOpenClawHome)
+  : path.dirname(openclawStateDir)
+
+// Normalize env wiring for child processes and status probes.
+if (
+  (!process.env.OPENCLAW_STATE_DIR && !process.env.CLAWDBOT_STATE_DIR) ||
+  isUnresolvedEnvToken(String(process.env.OPENCLAW_STATE_DIR || process.env.CLAWDBOT_STATE_DIR || ''))
+) {
+  process.env.OPENCLAW_STATE_DIR = openclawStateDir
+}
+if (!process.env.OPENCLAW_CONFIG_PATH || isUnresolvedEnvToken(String(process.env.OPENCLAW_CONFIG_PATH || ''))) {
+  process.env.OPENCLAW_CONFIG_PATH = openclawConfigPath
+}
+if (
+  legacyHomeLooksLikeStateDir ||
+  !process.env.OPENCLAW_HOME ||
+  isUnresolvedEnvToken(String(process.env.OPENCLAW_HOME || ''))
+) {
+  process.env.OPENCLAW_HOME = openclawHomeRoot
+}
 const openclawWorkspaceDir =
   process.env.OPENCLAW_WORKSPACE_DIR ||
   process.env.MISSION_CONTROL_WORKSPACE_DIR ||

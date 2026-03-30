@@ -1,8 +1,10 @@
+const path = require('node:path')
 const withNextIntl = require('next-intl/plugin')('./src/i18n/request.ts')
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',
+  outputFileTracingRoot: path.resolve(__dirname),
   outputFileTracingExcludes: {
     '/*': ['./.data/**/*'],
   },

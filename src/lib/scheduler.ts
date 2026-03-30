@@ -25,8 +25,24 @@ interface ScheduledTask {
   lastResult?: { ok: boolean; message: string; timestamp: number }
 }
 
-const tasks: Map<string, ScheduledTask> = new Map()
-let tickInterval: ReturnType<typeof setInterval> | null = null
+interface SchedulerRuntimeState {
+  tasks: Map<string, ScheduledTask>
+  tickInterval: ReturnType<typeof setInterval> | null
+}
+
+const schedulerGlobal = globalThis as typeof globalThis & {
+  __mcSchedulerRuntimeState?: SchedulerRuntimeState
+}
+
+const schedulerRuntimeState: SchedulerRuntimeState = schedulerGlobal.__mcSchedulerRuntimeState ?? {
+  tasks: new Map<string, ScheduledTask>(),
+  tickInterval: null,
+}
+
+schedulerGlobal.__mcSchedulerRuntimeState = schedulerRuntimeState
+
+const tasks: Map<string, ScheduledTask> = schedulerRuntimeState.tasks
+let tickInterval: ReturnType<typeof setInterval> | null = schedulerRuntimeState.tickInterval
 
 /** Check if a setting is enabled (reads from settings table, falls back to default) */
 function isSettingEnabled(key: string, defaultValue: boolean): boolean {
@@ -400,6 +416,7 @@ export function initScheduler() {
 
   // Start the tick loop
   tickInterval = setInterval(tick, TICK_MS)
+  schedulerRuntimeState.tickInterval = tickInterval
   logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook/claude/skill/local-agent/gateway-agent sync every 60s')
 }
 
@@ -531,5 +548,6 @@ export function stopScheduler() {
   if (tickInterval) {
     clearInterval(tickInterval)
     tickInterval = null
+    schedulerRuntimeState.tickInterval = null
   }
 }

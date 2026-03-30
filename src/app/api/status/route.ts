@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import net from 'node:net'
 import os from 'node:os'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { runCommand, runOpenClaw, runClawdbot } from '@/lib/command'
 import { config } from '@/lib/config'
@@ -129,6 +129,341 @@ async function getMemorySnapshot() {
     availableBytes,
     usedBytes,
     usagePercent,
+  }
+}
+
+interface AuthProfilesSnapshot {
+  stateDir: string
+  authProfilesPath: string
+  exists: boolean
+  profileCount: number
+  anthropicProfiles: number
+  readError?: string
+}
+
+interface OpenClawProfileStateSignal {
+  status: 'ok' | 'warning'
+  mismatchDetected: boolean
+  reason: string
+  evidence: {
+    envOpenclawHome: string | null
+    envOpenclawStateDir: string | null
+    configuredStateDir: string | null
+    configuredConfigPath: string | null
+    cliDerivedStateDirFromHome: string | null
+    configuredAuthProfiles: AuthProfilesSnapshot | null
+    cliDerivedAuthProfiles: AuthProfilesSnapshot | null
+  }
+  actions: string[]
+}
+
+interface RuntimeProcessRow {
+  pid: string
+  name: string
+  command: string
+}
+
+interface RuntimeProcessPressureSignal {
+  status: 'healthy' | 'warning' | 'critical'
+  message: string
+  detail: {
+    mode: 'development' | 'production'
+    totalRelevantProcesses: number
+    nodeProcesses: number
+    totalSystemNodeProcesses: number
+    gatewayProcesses: number
+    surfaceProcesses: number
+    governorProcesses: number
+    warningThresholds: {
+      totalRelevantProcesses: number
+      nodeProcesses: number
+      gatewayProcesses: number
+    }
+    criticalThresholds: {
+      totalRelevantProcesses: number
+      nodeProcesses: number
+      gatewayProcesses: number
+    }
+    sampleCommands: Array<{ pid: string; name: string; command: string }>
+  }
+  actions: string[]
+}
+
+function isTransientRuntimeProbe(row: RuntimeProcessRow): boolean {
+  const commandLower = row.command.toLowerCase()
+  const nameLower = row.name.toLowerCase()
+  const isPowerShellProbe =
+    /\b(powershell|pwsh)(\.exe)?\b/.test(nameLower) &&
+    (
+      commandLower.includes('get-ciminstance win32_process') ||
+      commandLower.includes('get-nettcpconnection') ||
+      commandLower.includes('convertto-json')
+    )
+  const isMissionControlCliProbe =
+    /\bnode(\.exe)?\b/.test(commandLower) &&
+    /scripts[\\/](mc-cli|mc-tui|mc-mcp-server)\.cjs/.test(commandLower)
+
+  return isPowerShellProbe || isMissionControlCliProbe
+}
+
+function normalizePathForCompare(inputPath: string): string {
+  const resolved = path.resolve(inputPath)
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+function snapshotAuthProfiles(stateDir: string): AuthProfilesSnapshot {
+  const authProfilesPath = path.join(stateDir, 'agents', 'main', 'agent', 'auth-profiles.json')
+  const snapshot: AuthProfilesSnapshot = {
+    stateDir,
+    authProfilesPath,
+    exists: existsSync(authProfilesPath),
+    profileCount: 0,
+    anthropicProfiles: 0,
+  }
+
+  if (!snapshot.exists) return snapshot
+
+  try {
+    const parsed = JSON.parse(readFileSync(authProfilesPath, 'utf-8')) as {
+      profiles?: Record<string, { provider?: string } | undefined>
+    }
+    const profiles =
+      parsed && typeof parsed === 'object' && parsed.profiles && typeof parsed.profiles === 'object'
+        ? parsed.profiles
+        : {}
+    snapshot.profileCount = Object.keys(profiles).length
+    snapshot.anthropicProfiles = Object.entries(profiles).reduce((count, [name, profile]) => {
+      const providerFromRecord = typeof profile?.provider === 'string' ? profile.provider.trim().toLowerCase() : ''
+      const providerFromName = name.includes(':') ? name.split(':')[0].trim().toLowerCase() : ''
+      const provider = providerFromRecord || providerFromName
+      return provider === 'anthropic' ? count + 1 : count
+    }, 0)
+  } catch (error: any) {
+    snapshot.readError = error?.message || 'Failed to parse auth-profiles.json'
+  }
+
+  return snapshot
+}
+
+function detectOpenClawProfileStateMismatch(): OpenClawProfileStateSignal {
+  const envOpenclawHome = String(process.env.OPENCLAW_HOME || process.env.CLAWDBOT_HOME || '').trim()
+  const envOpenclawStateDir = String(process.env.OPENCLAW_STATE_DIR || process.env.CLAWDBOT_STATE_DIR || '').trim()
+  const configuredStateDir = String(config.openclawStateDir || '').trim()
+  const configuredConfigPath = String(config.openclawConfigPath || '').trim()
+  const cliDerivedStateDirFromHome = envOpenclawHome ? path.join(envOpenclawHome, '.openclaw') : ''
+
+  const normalizedConfiguredStateDir = configuredStateDir ? normalizePathForCompare(configuredStateDir) : ''
+  const normalizedCliDerivedStateDir = cliDerivedStateDirFromHome
+    ? normalizePathForCompare(cliDerivedStateDirFromHome)
+    : ''
+
+  const openclawHomeLooksLikeStateDir =
+    Boolean(envOpenclawHome) && path.basename(normalizePathForCompare(envOpenclawHome)) === '.openclaw'
+  const homeDerivedDiffersFromConfigured =
+    Boolean(normalizedConfiguredStateDir) &&
+    Boolean(normalizedCliDerivedStateDir) &&
+    normalizedConfiguredStateDir !== normalizedCliDerivedStateDir
+
+  const configuredAuthProfiles = configuredStateDir ? snapshotAuthProfiles(configuredStateDir) : null
+  const cliDerivedAuthProfiles =
+    homeDerivedDiffersFromConfigured && cliDerivedStateDirFromHome
+      ? snapshotAuthProfiles(cliDerivedStateDirFromHome)
+      : null
+
+  const anthropicMissingInCliDerived =
+    (configuredAuthProfiles?.anthropicProfiles || 0) > 0 &&
+    (cliDerivedAuthProfiles?.anthropicProfiles || 0) === 0
+  const mismatchDetected =
+    !envOpenclawStateDir &&
+    homeDerivedDiffersFromConfigured &&
+    openclawHomeLooksLikeStateDir
+
+  const reason = mismatchDetected
+    ? anthropicMissingInCliDerived
+      ? 'OPENCLAW_HOME points at a state-dir path, so active OpenClaw CLI resolves a nested state-dir and misses Anthropic auth profiles.'
+      : 'OPENCLAW_HOME points at a state-dir path, so active OpenClaw CLI resolves a nested state-dir that differs from Mission Control state-dir.'
+    : 'OpenClaw profile/state-dir wiring appears consistent.'
+
+  const actions = mismatchDetected
+    ? [
+        `Set OPENCLAW_STATE_DIR to ${configuredStateDir || '<state-dir>'} and OPENCLAW_CONFIG_PATH to ${configuredConfigPath || '<state-dir>/openclaw.json'}.`,
+        `Or set OPENCLAW_HOME to the parent home directory (${configuredStateDir ? path.dirname(configuredStateDir) : '<home-dir>'}), not the .openclaw state-dir itself.`,
+        'Re-run `openclaw gateway install --force` from the corrected environment profile so service and CLI use the same state-dir.',
+      ]
+    : []
+
+  return {
+    status: mismatchDetected ? 'warning' : 'ok',
+    mismatchDetected,
+    reason,
+    evidence: {
+      envOpenclawHome: envOpenclawHome || null,
+      envOpenclawStateDir: envOpenclawStateDir || null,
+      configuredStateDir: configuredStateDir || null,
+      configuredConfigPath: configuredConfigPath || null,
+      cliDerivedStateDirFromHome: cliDerivedStateDirFromHome || null,
+      configuredAuthProfiles,
+      cliDerivedAuthProfiles,
+    },
+    actions,
+  }
+}
+
+function truncateCommand(command: string, maxLength = 180): string {
+  if (command.length <= maxLength) return command
+  return `${command.slice(0, maxLength - 3)}...`
+}
+
+async function getRuntimeProcessRows(): Promise<RuntimeProcessRow[]> {
+  if (process.platform === 'win32') {
+    const processCmd =
+      "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+    const { stdout } = await runCommand('powershell.exe', ['-NoProfile', '-Command', processCmd], { timeoutMs: 5000 })
+    const parsed = JSON.parse(stdout || '[]')
+    const entries = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : [])
+    return entries
+      .map((row: any) => {
+        const pid = row?.ProcessId != null ? String(row.ProcessId).trim() : ''
+        const name = String(row?.Name || '').trim()
+        const command = String(row?.CommandLine || row?.Name || '').trim()
+        return { pid, name, command }
+      })
+      .filter((row: RuntimeProcessRow) => Boolean(row.pid) && Boolean(row.command))
+  }
+
+  const { stdout } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], { timeoutMs: 3000 })
+  return stdout
+    .split('\n')
+    .filter(line => line.trim())
+    .filter(line => !line.trim().toLowerCase().startsWith('pid '))
+    .map(line => {
+      const parts = line.trim().split(/\s+/)
+      const pid = String(parts[0] || '').trim()
+      const name = String(parts[1] || '').trim()
+      const command = String(parts.slice(2).join(' ') || parts[1] || '').trim()
+      return { pid, name, command }
+    })
+    .filter(row => Boolean(row.pid) && Boolean(row.command))
+}
+
+async function detectRuntimeProcessPressure(): Promise<RuntimeProcessPressureSignal> {
+  const isDev = process.env.NODE_ENV !== 'production'
+  const rows = await getRuntimeProcessRows()
+  const cwdLower = process.cwd().toLowerCase()
+  const stableRows = rows.filter((row) => !isTransientRuntimeProbe(row))
+
+  const totalSystemNodeProcesses = stableRows.filter((row) =>
+    /\bnode(\.exe)?\b/i.test(row.command) || /\bnode(\.exe)?\b/i.test(row.name)
+  ).length
+
+  const relevant = stableRows.filter((row) => {
+    const commandLower = row.command.toLowerCase()
+    const isWorkspaceProcess = commandLower.includes(cwdLower)
+    const isMissionControlOrGatewayProcess =
+      /openclaw|clawdbot|clawstrap-surface|clawstrap-governor|\bnext(?:-server)?\b/.test(commandLower)
+    return (
+      isWorkspaceProcess ||
+      isMissionControlOrGatewayProcess
+    )
+  })
+
+  const nodeProcesses = relevant.filter((row) =>
+    /\bnode(\.exe)?\b/i.test(row.command) || /\bnode(\.exe)?\b/i.test(row.name)
+  ).length
+  const gatewayProcesses = relevant.filter((row) =>
+    /[\\/]openclaw[\\/]dist[\\/]index\.js\s+gateway(?:\s|$)/i.test(row.command) ||
+    /\bopenclaw(?:\.cmd|\.exe)?\b.*\bgateway\b.*--port/i.test(row.command) ||
+    /\bclawdbot(?:\.cmd|\.exe)?\b.*\bgateway\b/i.test(row.command)
+  ).length
+  const surfaceProcesses = relevant.filter((row) =>
+    /clawstrap-surface|\bnext(?:-server)?\b|next dev/i.test(row.command)
+  ).length
+  const governorProcesses = relevant.filter((row) =>
+    /clawstrap-governor/i.test(row.command)
+  ).length
+  const totalRelevantProcesses = relevant.length
+
+  const warningThresholds = {
+    totalRelevantProcesses: isDev ? 12 : 8,
+    nodeProcesses: isDev ? 8 : 5,
+    gatewayProcesses: 2,
+  }
+  const criticalThresholds = {
+    totalRelevantProcesses: isDev ? 20 : 12,
+    nodeProcesses: isDev ? 12 : 8,
+    gatewayProcesses: isDev ? 3 : 2,
+  }
+
+  let status: RuntimeProcessPressureSignal['status'] = 'healthy'
+  const reasons: string[] = []
+  if (
+    totalRelevantProcesses >= criticalThresholds.totalRelevantProcesses ||
+    nodeProcesses >= criticalThresholds.nodeProcesses ||
+    gatewayProcesses >= criticalThresholds.gatewayProcesses
+  ) {
+    status = 'critical'
+    if (totalRelevantProcesses >= criticalThresholds.totalRelevantProcesses) {
+      reasons.push(`relevant process count ${totalRelevantProcesses} >= ${criticalThresholds.totalRelevantProcesses}`)
+    }
+    if (nodeProcesses >= criticalThresholds.nodeProcesses) {
+      reasons.push(`node process count ${nodeProcesses} >= ${criticalThresholds.nodeProcesses}`)
+    }
+    if (gatewayProcesses >= criticalThresholds.gatewayProcesses) {
+      reasons.push(`gateway process count ${gatewayProcesses} >= ${criticalThresholds.gatewayProcesses}`)
+    }
+  } else if (
+    totalRelevantProcesses >= warningThresholds.totalRelevantProcesses ||
+    nodeProcesses >= warningThresholds.nodeProcesses ||
+    gatewayProcesses >= warningThresholds.gatewayProcesses
+  ) {
+    status = 'warning'
+    if (totalRelevantProcesses >= warningThresholds.totalRelevantProcesses) {
+      reasons.push(`relevant process count ${totalRelevantProcesses} >= ${warningThresholds.totalRelevantProcesses}`)
+    }
+    if (nodeProcesses >= warningThresholds.nodeProcesses) {
+      reasons.push(`node process count ${nodeProcesses} >= ${warningThresholds.nodeProcesses}`)
+    }
+    if (gatewayProcesses >= warningThresholds.gatewayProcesses) {
+      reasons.push(`gateway process count ${gatewayProcesses} >= ${warningThresholds.gatewayProcesses}`)
+    }
+  }
+
+  const message =
+    status === 'healthy'
+      ? `Relevant=${totalRelevantProcesses}, Node=${nodeProcesses}, Gateway=${gatewayProcesses}`
+      : `Runtime process pressure: ${reasons.join('; ')}`
+
+  const actions: string[] = []
+  if (status !== 'healthy') {
+    actions.push('Restart Mission Control dev server and verify process counts drop after one boot cycle.')
+  }
+  if (gatewayProcesses >= warningThresholds.gatewayProcesses) {
+    actions.push('Check for duplicate gateway instances with `openclaw gateway status` and terminate orphan gateway processes before reinstalling service.')
+  }
+  if (nodeProcesses >= warningThresholds.nodeProcesses) {
+    actions.push('Inspect long-running pollers/listeners for duplicate initialization after module reload.')
+  }
+
+  return {
+    status,
+    message,
+    detail: {
+      mode: isDev ? 'development' : 'production',
+      totalRelevantProcesses,
+      nodeProcesses,
+      totalSystemNodeProcesses,
+      gatewayProcesses,
+      surfaceProcesses,
+      governorProcesses,
+      warningThresholds,
+      criticalThresholds,
+      sampleCommands: relevant.slice(0, 8).map((row) => ({
+        pid: row.pid,
+        name: row.name,
+        command: truncateCommand(row.command),
+      })),
+    },
+    actions,
   }
 }
 
@@ -324,24 +659,84 @@ async function getSystemStatus(workspaceId: number) {
   }
 
   try {
-    // ClawdBot processes
-    const { stdout: processOutput } = await runCommand(
-      'ps',
-      ['-A', '-o', 'pid,comm,args'],
-      { timeoutMs: 3000 }
-    )
-    const processes = processOutput.split('\n')
-      .filter(line => line.trim())
-      .filter(line => !line.trim().toLowerCase().startsWith('pid '))
-      .map(line => {
-        const parts = line.trim().split(/\s+/)
-        return {
-          pid: parts[0],
-          command: parts.slice(2).join(' ')
-        }
+    // Runtime process summary (gateway + surface + governor), cross-platform.
+    const processMap = new Map<string, { pid: string; command: string; roles: string[] }>()
+    const upsertProcess = (pid: string, command?: string, role?: string) => {
+      const normalizedPid = String(pid || '').trim()
+      if (!normalizedPid) return
+
+      const normalizedCommand = String(command || '').trim()
+      const existing = processMap.get(normalizedPid)
+      if (!existing) {
+        processMap.set(normalizedPid, {
+          pid: normalizedPid,
+          command: normalizedCommand || 'unknown',
+          roles: role ? [role] : [],
+        })
+        return
+      }
+
+      if (normalizedCommand && (existing.command === 'unknown' || existing.command.startsWith('listener:'))) {
+        existing.command = normalizedCommand
+      }
+      if (role && !existing.roles.includes(role)) {
+        existing.roles.push(role)
+      }
+    }
+
+    if (process.platform === 'win32') {
+      const listenerPidSet = new Set<string>()
+      const listenerCmd =
+        "Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 3000,3001 } | Select-Object LocalPort,OwningProcess | ConvertTo-Json -Compress"
+      const { stdout: listenerStdout } = await runCommand('powershell.exe', ['-NoProfile', '-Command', listenerCmd], {
+        timeoutMs: 4000,
       })
-      .filter((proc) => /clawdbot|openclaw/i.test(proc.command))
-    status.processes = processes
+      const listenerParsed = JSON.parse(listenerStdout || '[]')
+      const listeners = Array.isArray(listenerParsed) ? listenerParsed : (listenerParsed ? [listenerParsed] : [])
+      for (const row of listeners) {
+        const pid = row?.OwningProcess != null ? String(row.OwningProcess) : ''
+        const port = row?.LocalPort != null ? String(row.LocalPort) : ''
+        if (!pid || !port) continue
+        listenerPidSet.add(pid)
+        const role = port === '3001' ? 'governor-listener' : port === '3000' ? 'surface-listener' : 'listener'
+        upsertProcess(pid, `listener:${port}`, role)
+      }
+
+      const processCmd =
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,Name,CommandLine | ConvertTo-Json -Compress"
+      const { stdout } = await runCommand('powershell.exe', ['-NoProfile', '-Command', processCmd], { timeoutMs: 5000 })
+      const parsed = JSON.parse(stdout || '[]')
+      const entries = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : [])
+      for (const row of entries) {
+        const pid = row?.ProcessId != null ? String(row.ProcessId) : ''
+        const command = String(row?.CommandLine || '').trim()
+        if (!pid || !command) continue
+        if (listenerPidSet.has(pid) || /openclaw|clawdbot|clawstrap-surface|clawstrap-governor/i.test(command)) {
+          upsertProcess(pid, command)
+        }
+      }
+    } else {
+      const { stdout: processOutput } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], { timeoutMs: 3000 })
+      const parsedRows = processOutput.split('\n')
+        .filter(line => line.trim())
+        .filter(line => !line.trim().toLowerCase().startsWith('pid '))
+        .map(line => {
+          const parts = line.trim().split(/\s+/)
+          return {
+            pid: parts[0],
+            command: parts.slice(2).join(' ')
+          }
+        })
+        .filter((proc) => /clawdbot|openclaw|clawstrap-surface|clawstrap-governor/i.test(proc.command))
+      for (const proc of parsedRows) {
+        upsertProcess(proc.pid, proc.command)
+      }
+    }
+
+    status.processes = Array.from(processMap.values()).map((row) => ({
+      pid: row.pid,
+      command: row.roles.length > 0 ? `${row.command} [${row.roles.join(', ')}]` : row.command,
+    }))
   } catch (error) {
     logger.error({ err: error }, 'Error getting process info')
   }
@@ -397,23 +792,42 @@ async function getGatewayStatus() {
   }
 
   try {
-    const { stdout } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], {
-      timeoutMs: 3000
-    })
-    const match = stdout
-      .split('\n')
-      .find((line) => /clawdbot-gateway|openclaw-gateway|openclaw.*gateway/i.test(line))
-    if (match) {
-      const parts = match.trim().split(/\s+/)
-      gatewayStatus.running = true
-      gatewayStatus.pid = parts[0]
+    if (process.platform === 'win32') {
+      const psCmd = "$p = Get-CimInstance Win32_Process | Where-Object { ($_.CommandLine -match 'openclaw.+gateway') -or ($_.CommandLine -match '\\\\gateway\\.cmd') }; if ($p) { $p | Select-Object ProcessId, CommandLine | ConvertTo-Json -Depth 3 -Compress }"
+      const { stdout } = await runCommand('powershell', ['-NoProfile', '-Command', psCmd], {
+        timeoutMs: 4000
+      })
+      if (stdout?.trim()) {
+        const parsed = JSON.parse(stdout.trim())
+        const first = Array.isArray(parsed) ? parsed[0] : parsed
+        const pid = first?.ProcessId ? String(first.ProcessId) : null
+        if (pid) {
+          gatewayStatus.running = true
+          gatewayStatus.pid = pid
+        }
+      }
+    } else {
+      const { stdout } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], {
+        timeoutMs: 3000
+      })
+      const match = stdout
+        .split('\n')
+        .find((line) => /clawdbot-gateway|openclaw-gateway|openclaw.*gateway/i.test(line))
+      if (match) {
+        const parts = match.trim().split(/\s+/)
+        gatewayStatus.running = true
+        gatewayStatus.pid = parts[0]
+      }
     }
   } catch (error) {
-    // Gateway not running
+    // Fall through to socket-level port check below.
   }
 
   try {
     gatewayStatus.port_listening = await isPortOpen(config.gatewayHost, config.gatewayPort)
+    if (gatewayStatus.port_listening) {
+      gatewayStatus.running = true
+    }
   } catch (error) {
     logger.error({ err: error }, 'Error checking port')
   }
@@ -471,6 +885,41 @@ async function getAvailableModels() {
   return models
 }
 
+async function resolveGatewayCapability() {
+  // Probe configured gateways (if any).
+  // A DB row alone isn't enough — the gateway must actually be reachable.
+  let configuredGatewayReachable = false
+  try {
+    const db = getDatabase()
+    const table = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='gateways'"
+    ).get() as { name?: string } | undefined
+    if (table?.name) {
+      const rows = db.prepare('SELECT host, port FROM gateways').all() as { host: string; port: number }[]
+      if (rows.length > 0) {
+        const probes = rows.map(r => isPortOpen(r.host, Number(r.port)))
+        const results = await Promise.all(probes)
+        configuredGatewayReachable = results.some(Boolean)
+      }
+    }
+  } catch {
+    // ignore — fallback below still handles default gateway probes/process state
+  }
+
+  const gatewayStatus = await getGatewayStatus()
+  const gatewayReachable = configuredGatewayReachable || Boolean(gatewayStatus.port_listening)
+  const gatewayProcessDetected = Boolean(gatewayStatus.pid)
+  const gatewayLikelyStaleProcess = gatewayProcessDetected && !gatewayReachable
+  return {
+    gateway: gatewayReachable,
+    configuredGatewayReachable,
+    gatewayReachable,
+    gatewayProcessDetected,
+    gatewayLikelyStaleProcess,
+    gatewayStatus,
+  }
+}
+
 async function performHealthCheck() {
   const health: any = {
     status: 'healthy',
@@ -514,21 +963,63 @@ async function performHealthCheck() {
   try {
     const mem = process.memoryUsage()
     const rssMB = Math.round(mem.rss / (1024 * 1024))
+    const totalSystemMb = Math.round(os.totalmem() / (1024 * 1024))
+    const rssPercentOfSystem = totalSystemMb > 0 ? Math.round((rssMB / totalSystemMb) * 100) : 0
+    const memorySnapshot = await getMemorySnapshot()
+    const systemUsagePercent = memorySnapshot.usagePercent
+    const isDev = process.env.NODE_ENV !== 'production'
+    // Next.js dev runtime can exceed 2GB RSS on Windows during rebuilds.
+    // In dev, use a higher absolute threshold plus a relative system-memory guard.
+    const warningThresholdMb = isDev ? 1600 : 400
+    const criticalThresholdMb = isDev ? 3200 : 800
+    const hardCriticalThresholdMb = isDev ? 5500 : criticalThresholdMb
+    const warningPercentOfSystem = isDev ? 30 : 0
+    const criticalPercentOfSystem = isDev ? 50 : 0
+    const legacyDevCriticalThresholdMb = 2400
+    const exceededLegacyDevCritical = isDev && rssMB >= legacyDevCriticalThresholdMb
     let memStatus = 'healthy'
-    if (mem.rss > 800 * 1024 * 1024) {
-      memStatus = 'critical'
-    } else if (mem.rss > 400 * 1024 * 1024) {
-      memStatus = 'warning'
+
+    if (isDev) {
+      const criticalByAbsolute = rssMB >= hardCriticalThresholdMb
+      const criticalByRelative =
+        rssMB >= criticalThresholdMb &&
+        (rssPercentOfSystem >= criticalPercentOfSystem || systemUsagePercent >= 95)
+      const warningByAbsolute = rssMB >= warningThresholdMb
+      const warningByRelative = rssPercentOfSystem >= warningPercentOfSystem || systemUsagePercent >= 90
+
+      if (criticalByAbsolute || criticalByRelative) {
+        memStatus = 'critical'
+      } else if (warningByAbsolute || warningByRelative) {
+        memStatus = 'warning'
+      }
+    } else {
+      if (rssMB >= criticalThresholdMb) {
+        memStatus = 'critical'
+      } else if (rssMB >= warningThresholdMb) {
+        memStatus = 'warning'
+      }
     }
 
     health.checks.push({
       name: 'Process Memory',
       status: memStatus,
-      message: `RSS: ${rssMB}MB, Heap: ${Math.round(mem.heapUsed / (1024 * 1024))}/${Math.round(mem.heapTotal / (1024 * 1024))}MB`,
+      message: `RSS: ${rssMB}MB (${rssPercentOfSystem}% system), Heap: ${Math.round(mem.heapUsed / (1024 * 1024))}/${Math.round(mem.heapTotal / (1024 * 1024))}MB`,
       detail: {
+        mode: isDev ? 'development' : 'production',
         rss: mem.rss,
+        rssMB,
+        totalSystemMb,
+        rssPercentOfSystem,
+        systemUsagePercent,
         heapUsed: mem.heapUsed,
         heapTotal: mem.heapTotal,
+        warningThresholdMb,
+        criticalThresholdMb,
+        hardCriticalThresholdMb: isDev ? hardCriticalThresholdMb : null,
+        warningPercentOfSystem: isDev ? warningPercentOfSystem : null,
+        criticalPercentOfSystem: isDev ? criticalPercentOfSystem : null,
+        legacyDevCriticalThresholdMb: isDev ? legacyDevCriticalThresholdMb : null,
+        exceededLegacyDevCritical,
       }
     })
   } catch (error) {
@@ -541,17 +1032,63 @@ async function performHealthCheck() {
 
   // Check gateway connection
   try {
-    const gatewayStatus = await getGatewayStatus()
+    const gatewayCapability = await resolveGatewayCapability()
     health.checks.push({
       name: 'Gateway',
-      status: gatewayStatus.running ? 'healthy' : 'unhealthy',
-      message: gatewayStatus.running ? 'Gateway is running' : 'Gateway is not running'
+      status: gatewayCapability.gatewayReachable ? 'healthy' : 'unhealthy',
+      message: gatewayCapability.gatewayReachable
+        ? 'Gateway is available'
+        : gatewayCapability.gatewayLikelyStaleProcess
+          ? 'Gateway process detected but endpoint is not reachable'
+          : 'Gateway is not available',
+      detail: {
+        configuredGatewayReachable: gatewayCapability.configuredGatewayReachable,
+        gatewayProcessDetected: gatewayCapability.gatewayProcessDetected,
+        gatewayLikelyStaleProcess: gatewayCapability.gatewayLikelyStaleProcess,
+        ...gatewayCapability.gatewayStatus,
+      },
     })
   } catch (error) {
     health.checks.push({
       name: 'Gateway',
       status: 'error',
       message: 'Failed to check gateway status'
+    })
+  }
+
+  // Check runtime process pressure (runaway/orphan process detection).
+  try {
+    const processPressure = await detectRuntimeProcessPressure()
+    health.checks.push({
+      name: 'Runtime Process Load',
+      status: processPressure.status,
+      message: processPressure.message,
+      detail: processPressure,
+    })
+  } catch (error) {
+    health.checks.push({
+      name: 'Runtime Process Load',
+      status: 'error',
+      message: 'Failed to evaluate runtime process pressure',
+    })
+  }
+
+  // Check OpenClaw profile/state-dir alignment (detect env/profile mismatch that can hide provider auth).
+  try {
+    const profileStateSignal = detectOpenClawProfileStateMismatch()
+    if (profileStateSignal.mismatchDetected) {
+      health.checks.push({
+        name: 'OpenClaw Profile State',
+        status: 'warning',
+        message: profileStateSignal.reason,
+        detail: profileStateSignal,
+      })
+    }
+  } catch (error) {
+    health.checks.push({
+      name: 'OpenClaw Profile State',
+      status: 'error',
+      message: 'Failed to verify OpenClaw profile/state-dir alignment',
     })
   }
 
@@ -617,32 +1154,18 @@ async function performHealthCheck() {
 }
 
 async function getCapabilities(request?: NextRequest) {
-  // Probe configured gateways (if any) or fall back to the default port.
-  // A DB row alone isn't enough — the gateway must actually be reachable.
-  let gatewayReachable = false
-  try {
-    const db = getDatabase()
-    const table = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='gateways'"
-    ).get() as { name?: string } | undefined
-    if (table?.name) {
-      const rows = db.prepare('SELECT host, port FROM gateways').all() as { host: string; port: number }[]
-      if (rows.length > 0) {
-        const probes = rows.map(r => isPortOpen(r.host, Number(r.port)))
-        const results = await Promise.all(probes)
-        gatewayReachable = results.some(Boolean)
-      }
-    }
-  } catch {
-    // ignore — fall through to default probe
-  }
-
-  const gateway = gatewayReachable || await isPortOpen(config.gatewayHost, config.gatewayPort)
+  const gatewayCapability = await resolveGatewayCapability()
+  const gateway = gatewayCapability.gateway
 
   const openclawHome = Boolean(
     (config.openclawStateDir && existsSync(config.openclawStateDir)) ||
     (config.openclawConfigPath && existsSync(config.openclawConfigPath))
   )
+  const openclawProfileState = detectOpenClawProfileStateMismatch()
+  const anthropicLikelyMissingInActiveProfile =
+    openclawProfileState.mismatchDetected &&
+    (openclawProfileState.evidence.configuredAuthProfiles?.anthropicProfiles || 0) > 0 &&
+    (openclawProfileState.evidence.cliDerivedAuthProfiles?.anthropicProfiles || 0) === 0
 
   const claudeProjectsPath = path.join(config.claudeHome, 'projects')
   const claudeHome = existsSync(claudeProjectsPath)
@@ -722,7 +1245,23 @@ async function getCapabilities(request?: NextRequest) {
 
   const isDocker = existsSync('/.dockerenv')
 
-  return { gateway, openclawHome, claudeHome, claudeSessions, hermesInstalled, hermesSessions, subscription, subscriptions, processUser, interfaceMode, dashboardRegistration, isDocker }
+  return {
+    gateway,
+    openclawHome,
+    claudeHome,
+    claudeSessions,
+    hermesInstalled,
+    hermesSessions,
+    subscription,
+    subscriptions,
+    processUser,
+    interfaceMode,
+    dashboardRegistration,
+    isDocker,
+    openclawProfileState,
+    openclawAuthMismatch: openclawProfileState.mismatchDetected,
+    anthropicLikelyMissingInActiveProfile,
+  }
 }
 
 function isPortOpen(host: string, port: number): Promise<boolean> {

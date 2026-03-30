@@ -607,7 +607,7 @@ async function handleEventsWatch(flags, ctx) {
       },
       onError: (err) => {
         console.error(JSON.stringify({ ok: false, error: err }));
-        process.exit(EXIT.SERVER);
+        process.exitCode = EXIT.SERVER;
       },
     });
   } else {
@@ -627,11 +627,11 @@ async function handleEventsWatch(flags, ctx) {
       },
       onError: (err) => {
         console.error(`SSE error: ${JSON.stringify(err)}`);
-        process.exit(EXIT.SERVER);
+        process.exitCode = EXIT.SERVER;
       },
     });
   }
-  process.exit(EXIT.OK);
+  return process.exitCode ?? EXIT.OK;
 }
 
 // --- Main ---
@@ -640,7 +640,7 @@ async function run() {
   const parsed = parseArgs(process.argv.slice(2));
   if (parsed.flags.help || parsed._.length === 0) {
     usage();
-    process.exit(EXIT.OK);
+    return EXIT.OK;
   }
 
   const asJson = Boolean(parsed.flags.json);
@@ -665,13 +665,12 @@ async function run() {
       const body = bodyFromFlags(parsed.flags);
       const result = await httpRequest({ baseUrl, apiKey, cookie: profile.cookie, method, route, body, timeoutMs });
       printResult(result, asJson);
-      process.exit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+      return result.ok ? EXIT.OK : mapStatusToExit(result.status);
     }
 
     // Events watch (SSE)
     if (group === 'events' && action === 'watch') {
-      await handleEventsWatch(parsed.flags, { ...ctx, timeoutMs: Number(parsed.flags['timeout-ms'] || 3600000) });
-      return;
+      return await handleEventsWatch(parsed.flags, { ...ctx, timeoutMs: Number(parsed.flags['timeout-ms'] || 3600000) });
     }
 
     // Look up group and action in the commands map
@@ -679,14 +678,14 @@ async function run() {
     if (!groupMap) {
       console.error(`Unknown group: ${group}`);
       usage();
-      process.exit(EXIT.USAGE);
+      return EXIT.USAGE;
     }
 
     let handler = groupMap[action];
     if (!handler) {
       console.error(`Unknown action: ${group} ${action}`);
       usage();
-      process.exit(EXIT.USAGE);
+      return EXIT.USAGE;
     }
 
     // Inject sub-command into flags for compound commands (memory, soul, comments)
@@ -702,7 +701,7 @@ async function run() {
     // If handler returned an http result directly (auth login/logout)
     if (result_or_config && 'ok' in result_or_config && 'status' in result_or_config) {
       printResult(result_or_config, asJson);
-      process.exit(result_or_config.ok ? EXIT.OK : mapStatusToExit(result_or_config.status));
+      return result_or_config.ok ? EXIT.OK : mapStatusToExit(result_or_config.status);
     }
 
     // Otherwise it returned { method, route, body? } — execute the request
@@ -718,7 +717,7 @@ async function run() {
     });
 
     printResult(result, asJson);
-    process.exit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+    return result.ok ? EXIT.OK : mapStatusToExit(result.status);
   } catch (err) {
     const message = err?.message || String(err);
     if (asJson) {
@@ -726,8 +725,16 @@ async function run() {
     } else {
       console.error(`USAGE ERROR: ${message}`);
     }
-    process.exit(EXIT.USAGE);
+    return EXIT.USAGE;
   }
 }
 
-run();
+run()
+  .then((code) => {
+    process.exitCode = Number.isInteger(code) ? code : EXIT.OK;
+  })
+  .catch((err) => {
+    const message = err?.message || String(err);
+    console.error(`FATAL ERROR: ${message}`);
+    process.exitCode = EXIT.SERVER;
+  });
