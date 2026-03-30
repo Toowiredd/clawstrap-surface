@@ -9,6 +9,8 @@ export interface SelfBuildActivationGate {
   required_context_files?: string[]
   hard_failures?: string[]
   soft_warnings?: string[]
+  self_improvement_markdown_path?: string
+  self_improvement_json_path?: string
 }
 
 export interface SelfBuildRunManifest {
@@ -20,6 +22,11 @@ export interface SelfBuildRunManifest {
   topology_fail_options?: string[]
   anti_randomness_rules?: string[]
   recommended_self_build_loop?: string[]
+  self_improvement_loop?: string[]
+  final_solution_requirements?: string[]
+  institutionalization_requirements?: string[]
+  carry_forward_rules?: string[]
+  harvest_questions?: string[]
   decision_questions?: string[]
   canonical_sources?: Record<string, string[]>
   no_go_conditions?: string[]
@@ -166,6 +173,14 @@ export function evaluateSelfBuildGuard(
     violations.push('Self-build manifest is missing decision questions.')
   }
 
+  if ((bundle.runManifest.self_improvement_loop || []).length === 0) {
+    violations.push('Self-build manifest is missing the true self-improvement loop.')
+  }
+
+  if ((bundle.runManifest.final_solution_requirements || []).length === 0) {
+    violations.push('Self-build manifest is missing final solution requirements.')
+  }
+
   if ((opts?.stepCount || 0) > 1 && bundle.activationGate.mode_recommendation === 'guarded') {
     violations.push('Self-build gate is guarded; multi-step autonomous pipeline execution is blocked until runtime truth is stronger.')
   }
@@ -183,6 +198,11 @@ export function buildSelfBuildPromptPreamble(
   const questions = bundle.runManifest.decision_questions || []
   const noGo = bundle.runManifest.no_go_conditions || []
   const loop = bundle.runManifest.recommended_self_build_loop || []
+  const selfImprovementLoop = bundle.runManifest.self_improvement_loop || []
+  const finalSolutionRequirements = bundle.runManifest.final_solution_requirements || []
+  const institutionalizationRequirements = bundle.runManifest.institutionalization_requirements || []
+  const carryForwardRules = bundle.runManifest.carry_forward_rules || []
+  const harvestQuestions = bundle.runManifest.harvest_questions || []
 
   const lines = [
     `SELF-BUILD CONTRACT (${mode.toUpperCase()})`,
@@ -200,6 +220,16 @@ export function buildSelfBuildPromptPreamble(
     ...noGo.map((item) => `  - ${item}`),
     '- Required execution loop:',
     ...loop.map((item, index) => `  ${index + 1}. ${item}`),
+    '- True self-improvement loop:',
+    ...selfImprovementLoop.map((item, index) => `  ${index + 1}. ${item}`),
+    '- Final solution requirements:',
+    ...finalSolutionRequirements.map((item) => `  - ${item}`),
+    '- Institutionalization requirements:',
+    ...institutionalizationRequirements.map((item) => `  - ${item}`),
+    '- Carry-forward rules:',
+    ...carryForwardRules.map((item) => `  - ${item}`),
+    '- Harvest questions:',
+    ...harvestQuestions.map((item) => `  - ${item}`),
     'Do not improvise outside this contract. If evidence, topology, runtime truth, and product truth diverge, stop and report the conflict.',
   ]
 
@@ -217,5 +247,7 @@ export function buildSelfBuildMetadata(bundle: SelfBuildIntelligenceBundle, sign
     manifest_path: bundle.runManifestPath,
     gate_path: bundle.activationGatePath,
     required_context_files: bundle.runManifest.required_context_files || bundle.activationGate.required_context_files || [],
+    final_solution_requirements: bundle.runManifest.final_solution_requirements || [],
+    institutionalization_requirements: bundle.runManifest.institutionalization_requirements || [],
   }
 }
