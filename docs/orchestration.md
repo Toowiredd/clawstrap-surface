@@ -117,6 +117,16 @@ The scheduler automatically dispatches `assigned` tasks to agents through the Op
    - Parses the response and stores the resolution
    - Moves the task to `review` status
 
+### Self-Build Prompt Controls
+
+When a task or pipeline step is detected as self-build work, Mission Control prepends the generated self-build contract before dispatch. The contract now includes step-level performance controls:
+
+- **Step execution response contract**: each step response must include intent, selected action, expected impact, verification checks, and risk notes.
+- **Performance rubric**: step candidates are scored on impact, safety, implementation cost, and verifiability before execution.
+- **Step iteration policy**: weak-score or failed-verification steps get one bounded optimization retry; then execution proceeds or escalates.
+
+This keeps autonomous output quality explicit and measurable per step, instead of relying on free-form agent behavior.
+
 ### Model Routing
 
 MC automatically selects a model based on task content:

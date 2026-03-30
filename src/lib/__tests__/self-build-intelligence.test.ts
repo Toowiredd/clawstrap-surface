@@ -147,5 +147,8 @@ describe('self-build-intelligence', () => {
     expect(preamble).toContain('PRODUCT-SPEC-FRESH.md')
     expect(preamble).toContain('True self-improvement loop:')
     expect(preamble).toContain('Final solution requirements:')
+    expect(preamble).toContain('Step execution response contract:')
+    expect(preamble).toContain('Performance rubric:')
+    expect(preamble).toContain('Step iteration policy:')
   })
 })

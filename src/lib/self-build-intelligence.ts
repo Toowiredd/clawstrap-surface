@@ -28,6 +28,9 @@ export interface SelfBuildRunManifest {
   carry_forward_rules?: string[]
   harvest_questions?: string[]
   decision_questions?: string[]
+  execution_response_contract?: string[]
+  performance_rubric?: string[]
+  step_iteration_policy?: string[]
   canonical_sources?: Record<string, string[]>
   no_go_conditions?: string[]
 }
@@ -203,6 +206,24 @@ export function buildSelfBuildPromptPreamble(
   const institutionalizationRequirements = bundle.runManifest.institutionalization_requirements || []
   const carryForwardRules = bundle.runManifest.carry_forward_rules || []
   const harvestQuestions = bundle.runManifest.harvest_questions || []
+  const executionResponseContract = bundle.runManifest.execution_response_contract || [
+    'For each required-loop step, return: intent, selected action, expected impact, verification command/check, and risk.',
+    'Score each step candidate on impact, confidence, and implementation cost (1-5 each) before selecting.',
+    'Prefer the highest total score that still satisfies no-go conditions and scope boundaries.',
+    'If selected step score is weak (total < 10/15), run exactly one improvement pass before executing.',
+    'After each step, report what changed and apply the same optimization routine to the next remaining step.',
+  ]
+  const performanceRubric = bundle.runManifest.performance_rubric || [
+    'Impact: Does this step materially advance the stated initiative outcome?',
+    'Safety: Does this step preserve contracts, anti-randomness rules, and no-go constraints?',
+    'Cost: Is this the smallest bounded slice that delivers measurable progress?',
+    'Verifiability: Are concrete validation checks defined before implementation?',
+  ]
+  const stepIterationPolicy = bundle.runManifest.step_iteration_policy || [
+    'Iterate within a step only when rubric score is weak or verification fails.',
+    'Cap optimization retries to one additional pass per step before escalation.',
+    'Do not skip remaining required-loop steps; apply the same scoring process to each.',
+  ]
 
   const lines = [
     `SELF-BUILD CONTRACT (${mode.toUpperCase()})`,
@@ -220,6 +241,12 @@ export function buildSelfBuildPromptPreamble(
     ...noGo.map((item) => `  - ${item}`),
     '- Required execution loop:',
     ...loop.map((item, index) => `  ${index + 1}. ${item}`),
+    '- Step execution response contract:',
+    ...executionResponseContract.map((item, index) => `  ${index + 1}. ${item}`),
+    '- Performance rubric:',
+    ...performanceRubric.map((item, index) => `  ${index + 1}. ${item}`),
+    '- Step iteration policy:',
+    ...stepIterationPolicy.map((item, index) => `  ${index + 1}. ${item}`),
     '- True self-improvement loop:',
     ...selfImprovementLoop.map((item, index) => `  ${index + 1}. ${item}`),
     '- Final solution requirements:',
