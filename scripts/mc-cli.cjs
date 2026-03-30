@@ -21,6 +21,10 @@ const EXIT = {
   SERVER: 6,
 };
 
+function setExit(code) {
+  process.exitCode = code;
+}
+
 function parseArgs(argv) {
   const out = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i += 1) {
@@ -665,7 +669,8 @@ async function run() {
       const body = bodyFromFlags(parsed.flags);
       const result = await httpRequest({ baseUrl, apiKey, cookie: profile.cookie, method, route, body, timeoutMs });
       printResult(result, asJson);
-      process.exit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+      setExit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+      return;
     }
 
     // Events watch (SSE)
@@ -679,14 +684,16 @@ async function run() {
     if (!groupMap) {
       console.error(`Unknown group: ${group}`);
       usage();
-      process.exit(EXIT.USAGE);
+      setExit(EXIT.USAGE);
+      return;
     }
 
     let handler = groupMap[action];
     if (!handler) {
       console.error(`Unknown action: ${group} ${action}`);
       usage();
-      process.exit(EXIT.USAGE);
+      setExit(EXIT.USAGE);
+      return;
     }
 
     // Inject sub-command into flags for compound commands (memory, soul, comments)
@@ -702,7 +709,8 @@ async function run() {
     // If handler returned an http result directly (auth login/logout)
     if (result_or_config && 'ok' in result_or_config && 'status' in result_or_config) {
       printResult(result_or_config, asJson);
-      process.exit(result_or_config.ok ? EXIT.OK : mapStatusToExit(result_or_config.status));
+      setExit(result_or_config.ok ? EXIT.OK : mapStatusToExit(result_or_config.status));
+      return;
     }
 
     // Otherwise it returned { method, route, body? } — execute the request
@@ -718,7 +726,8 @@ async function run() {
     });
 
     printResult(result, asJson);
-    process.exit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+    setExit(result.ok ? EXIT.OK : mapStatusToExit(result.status));
+    return;
   } catch (err) {
     const message = err?.message || String(err);
     if (asJson) {
@@ -726,7 +735,8 @@ async function run() {
     } else {
       console.error(`USAGE ERROR: ${message}`);
     }
-    process.exit(EXIT.USAGE);
+    setExit(EXIT.USAGE);
+    return;
   }
 }
 

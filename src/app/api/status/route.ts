@@ -515,9 +515,9 @@ async function performHealthCheck() {
     const mem = process.memoryUsage()
     const rssMB = Math.round(mem.rss / (1024 * 1024))
     let memStatus = 'healthy'
-    if (mem.rss > 800 * 1024 * 1024) {
+    if (mem.rss > 3200 * 1024 * 1024) {
       memStatus = 'critical'
-    } else if (mem.rss > 400 * 1024 * 1024) {
+    } else if (mem.rss > 1600 * 1024 * 1024) {
       memStatus = 'warning'
     }
 
@@ -542,10 +542,11 @@ async function performHealthCheck() {
   // Check gateway connection
   try {
     const gatewayStatus = await getGatewayStatus()
+    const gatewayReachable = Boolean(gatewayStatus.running || gatewayStatus.port_listening)
     health.checks.push({
       name: 'Gateway',
-      status: gatewayStatus.running ? 'healthy' : 'unhealthy',
-      message: gatewayStatus.running ? 'Gateway is running' : 'Gateway is not running'
+      status: gatewayReachable ? 'healthy' : 'unhealthy',
+      message: gatewayReachable ? 'Gateway is available' : 'Gateway is not running'
     })
   } catch (error) {
     health.checks.push({
