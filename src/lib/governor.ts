@@ -98,11 +98,35 @@ export interface GovernorGraphNode {
   attention: string
   importance: number
   vision_id: string | null
+  spec_id: string | null
+  task_id: string | null
+  updated_at: number
+}
+
+export interface GovernorGraphEdge {
+  id: string
+  edge_type: string
+  from_id: string
+  to_id: string
+  weight: number
+  direction: 'directed' | 'undirected'
+  vision_id: string | null
+  spec_id: string | null
+  task_id: string | null
+  created_at: number
   updated_at: number
 }
 
 export interface GovernorGraph {
   nodes: GovernorGraphNode[]
+  edges: GovernorGraphEdge[]
+  contract_version: string
+  generated_at: number
+  stats: {
+    node_count: number
+    edge_count: number
+    orphan_edges: number
+  }
 }
 
 // ─── Fetch helpers ─────────────────────────────────────────────────────────────
@@ -400,6 +424,8 @@ function normalizeGraphNode(input: unknown): GovernorGraphNode | null {
   const importance = readNumber(raw, 'importance', 'importance')
   const updated_at = readNumber(raw, 'updated_at', 'updatedAt')
   const vision_id = readNullableString(raw, 'vision_id', 'visionId')
+  const spec_id = readNullableString(raw, 'spec_id', 'specId')
+  const task_id = readNullableString(raw, 'task_id', 'taskId')
 
   if (!id || !node_type || !label || !status || !attention || importance === null || updated_at === null) {
     return null
@@ -413,6 +439,52 @@ function normalizeGraphNode(input: unknown): GovernorGraphNode | null {
     attention,
     importance,
     vision_id,
+    spec_id,
+    task_id,
+    updated_at,
+  }
+}
+
+function normalizeGraphEdge(input: unknown): GovernorGraphEdge | null {
+  const raw = toRecord(input)
+  if (!raw) return null
+
+  const id = readString(raw, 'id', 'id')
+  const edge_type = readString(raw, 'edge_type', 'edgeType')
+  const from_id = readString(raw, 'from_id', 'fromId')
+  const to_id = readString(raw, 'to_id', 'toId')
+  const weight = readNumber(raw, 'weight', 'weight')
+  const direction = readString(raw, 'direction', 'direction')
+  const vision_id = readNullableString(raw, 'vision_id', 'visionId')
+  const spec_id = readNullableString(raw, 'spec_id', 'specId')
+  const task_id = readNullableString(raw, 'task_id', 'taskId')
+  const created_at = readNumber(raw, 'created_at', 'createdAt')
+  const updated_at = readNumber(raw, 'updated_at', 'updatedAt')
+
+  if (
+    !id ||
+    !edge_type ||
+    !from_id ||
+    !to_id ||
+    weight === null ||
+    !direction ||
+    created_at === null ||
+    updated_at === null
+  ) {
+    return null
+  }
+
+  return {
+    id,
+    edge_type,
+    from_id,
+    to_id,
+    weight,
+    direction: direction as GovernorGraphEdge['direction'],
+    vision_id,
+    spec_id,
+    task_id,
+    created_at,
     updated_at,
   }
 }
@@ -460,8 +532,27 @@ export const governorApi = {
   graph: async (visionId?: string) => {
     const raw = await (visionId ? get<unknown>(`graph/${visionId}`) : get<unknown>('graph'))
     const record = toRecord(raw)
+    const root = record ?? ({} as WireRecord)
     const nodes = normalizeList(record?.nodes, normalizeGraphNode)
-    return { nodes }
+    const edges = normalizeList(record?.edges, normalizeGraphEdge)
+    const contract_version = readString(root, 'contract_version', 'contractVersion') ?? 'graph.legacy'
+    const generated_at = readNumber(root, 'generated_at', 'generatedAt') ?? 0
+    const statsRaw = toRecord(record?.stats)
+    const stats = statsRaw ?? ({} as WireRecord)
+    const node_count = readNumber(stats, 'node_count', 'nodeCount') ?? nodes.length
+    const edge_count = readNumber(stats, 'edge_count', 'edgeCount') ?? edges.length
+    const orphan_edges = readNumber(stats, 'orphan_edges', 'orphanEdges') ?? 0
+    return {
+      nodes,
+      edges,
+      contract_version,
+      generated_at,
+      stats: {
+        node_count,
+        edge_count,
+        orphan_edges,
+      },
+    }
   },
 }
 
