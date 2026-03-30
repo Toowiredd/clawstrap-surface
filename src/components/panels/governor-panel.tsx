@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   governorApi,
   subscribeGovernorEvents,
+  type GovernorGraph,
+  type GovernorGraphNode,
   type GovernorVision,
   type GovernorTask,
   type GovernorDecision,
@@ -12,6 +14,8 @@ import {
   type GovernorGate,
   type GovernorEvent,
 } from '@/lib/governor'
+
+const ENABLE_GRAPH_3D_PREVIEW = process.env.NEXT_PUBLIC_GOVERNOR_GRAPH_3D_PREVIEW === '1'
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
@@ -139,6 +143,7 @@ interface GovernorState {
   questions: GovernorQuestion[]
   risks: GovernorRisk[]
   gates: GovernorGate[]
+  graph: GovernorGraph
   events: GovernorEvent[]
   online: boolean | null
   lastRefresh: number | null
@@ -151,27 +156,57 @@ const EMPTY_STATE: GovernorState = {
   questions: [],
   risks: [],
   gates: [],
+  graph: {
+    nodes: [],
+    edges: [],
+    contract_version: 'graph.legacy',
+    generated_at: 0,
+    stats: { node_count: 0, edge_count: 0, orphan_edges: 0 },
+  },
   events: [],
   online: null,
   lastRefresh: null,
 }
 
+type GraphViewMode = '2d' | '3d-preview'
+type GraphUrgencyClass = 'urgent' | 'needs_input' | 'blocked' | 'at_risk' | 'pending'
+
+const HOTSPOT_STATUSES = new Set(['blocked', 'at_risk', 'pending'])
+const HOTSPOT_ATTENTION = new Set(['urgent', 'needs_input'])
+const GRAPH_URGENCY_CLASS_ORDER: GraphUrgencyClass[] = ['urgent', 'needs_input', 'blocked', 'at_risk', 'pending']
+
+function isHotspotNode(node: GovernorGraphNode) {
+  return HOTSPOT_STATUSES.has(node.status) || HOTSPOT_ATTENTION.has(node.attention)
+}
+
+function getGraphUrgencyClass(node: GovernorGraphNode): GraphUrgencyClass {
+  if (node.attention === 'urgent') return 'urgent'
+  if (node.attention === 'needs_input') return 'needs_input'
+  if (node.status === 'blocked') return 'blocked'
+  if (node.status === 'at_risk') return 'at_risk'
+  return 'pending'
+}
+
 export function GovernorPanel() {
   const [state, setState] = useState<GovernorState>(EMPTY_STATE)
   const [selectedVisionId, setSelectedVisionId] = useState<string | null>(null)
+  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>('2d')
+  const [graphTypeFilter, setGraphTypeFilter] = useState<string>('all')
+  const [graphUrgencyFilter, setGraphUrgencyFilter] = useState<'all' | GraphUrgencyClass>('all')
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async (visionId?: string | null) => {
     try {
       await governorApi.health()
 
-      const [visions, tasks, decisions, questions, risks, gates] = await Promise.all([
+      const [visions, tasks, decisions, questions, risks, gates, graph] = await Promise.all([
         governorApi.visions(),
         governorApi.tasks(visionId ?? undefined),
         governorApi.decisions(visionId ?? undefined),
         governorApi.questions(visionId ?? undefined),
         governorApi.risks(visionId ?? undefined),
         governorApi.gates(visionId ?? undefined),
+        governorApi.graph(visionId ?? undefined),
       ])
 
       setState((prev) => ({
@@ -182,6 +217,7 @@ export function GovernorPanel() {
         questions,
         risks,
         gates,
+        graph,
         online: true,
         lastRefresh: Date.now(),
       }))
@@ -218,6 +254,46 @@ export function GovernorPanel() {
   const openQuestions = state.questions.filter((q) => q.status === 'open')
   const activeRisks = state.risks.filter((r) => r.status === 'active')
   const pendingGates = state.gates.filter((g) => g.status === 'pending')
+
+  const hotspotNodes = state.graph.nodes.filter(isHotspotNode)
+  const graphTypeOptions = [...new Set(hotspotNodes.map((node) => node.node_type))].sort((a, b) => a.localeCompare(b))
+  const graphUrgencyOptions = GRAPH_URGENCY_CLASS_ORDER.filter((urgency) =>
+    hotspotNodes.some((node) => getGraphUrgencyClass(node) === urgency),
+  )
+
+  const graphHotspots = hotspotNodes
+    .filter((node) => graphTypeFilter === 'all' || node.node_type === graphTypeFilter)
+    .filter((node) => graphUrgencyFilter === 'all' || getGraphUrgencyClass(node) === graphUrgencyFilter)
+    .slice(0, 12)
+
+  const hotspotsByType = hotspotNodes.reduce<Record<string, number>>((acc, node) => {
+    acc[node.node_type] = (acc[node.node_type] ?? 0) + 1
+    return acc
+  }, {})
+
+  const hotspotsByUrgency = hotspotNodes.reduce<Record<GraphUrgencyClass, number>>((acc, node) => {
+    const urgency = getGraphUrgencyClass(node)
+    acc[urgency] = (acc[urgency] ?? 0) + 1
+    return acc
+  }, {
+    urgent: 0,
+    needs_input: 0,
+    blocked: 0,
+    at_risk: 0,
+    pending: 0,
+  })
+
+  const renderGraphNodeRow = (node: GovernorGraphNode) => (
+    <div key={node.id} className="py-1.5 border-b border-slate-800 last:border-0">
+      <div className="flex items-center gap-2">
+        <Badge label={node.status} />
+        <Badge label={node.attention} />
+        <span className="text-xs text-slate-500 font-mono uppercase">{node.node_type}</span>
+        <span className="flex-1 text-sm text-slate-200 truncate">{node.label}</span>
+      </div>
+      <p className="text-xs text-slate-500 font-mono mt-0.5">{node.id}</p>
+    </div>
+  )
 
   return (
     <div className="h-full flex flex-col bg-[#0f1117] text-slate-100">
@@ -266,6 +342,8 @@ export function GovernorPanel() {
         <span><span className="text-orange-400 font-mono">{activeRisks.length}</span> active risks</span>
         <span><span className="text-amber-400 font-mono">{pendingGates.length}</span> pending gates</span>
         <span><span className="text-blue-400 font-mono">{state.decisions.length}</span> decisions</span>
+        <span><span className="text-cyan-400 font-mono">{state.graph.stats.node_count}</span> graph nodes</span>
+        <span><span className="text-fuchsia-400 font-mono">{state.graph.stats.edge_count}</span> graph edges</span>
       </div>
 
       {/* Body */}
@@ -310,6 +388,89 @@ export function GovernorPanel() {
 
             {/* Right column */}
             <div>
+              <Section title="Mission Graph" count={state.graph.stats.node_count}>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-xs text-slate-500 font-mono">
+                    contract {state.graph.contract_version} · {graphViewMode}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setGraphViewMode('2d')}
+                      className={`text-xs px-2 py-1 rounded border ${graphViewMode === '2d' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                    >
+                      2D
+                    </button>
+                    {ENABLE_GRAPH_3D_PREVIEW && (
+                      <button
+                        onClick={() => setGraphViewMode('3d-preview')}
+                        className={`text-xs px-2 py-1 rounded border ${graphViewMode === '3d-preview' ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}
+                      >
+                        3D-preview
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="text-xs text-slate-500 mb-2">
+                  {graphViewMode === '2d'
+                    ? '2D operator view: hotspot-first list for rapid scan.'
+                    : '3D-preview mode: preview semantics only in this panel (lineage/hotspot intent), not final 3D scene rendering.'}
+                </div>
+                <div className="mb-2 text-xs border border-slate-800 rounded bg-slate-900/40 px-2 py-1 text-slate-400">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="text-slate-500">by type</span>
+                    {Object.entries(hotspotsByType)
+                      .sort((a, b) => a[0].localeCompare(b[0]))
+                      .map(([nodeType, count]) => (
+                        <span key={`type-${nodeType}`} className="font-mono text-slate-300">
+                          {nodeType}:{count}
+                        </span>
+                      ))}
+                    <span className="text-slate-600">|</span>
+                    <span className="text-slate-500">by urgency</span>
+                    {GRAPH_URGENCY_CLASS_ORDER.filter((urgency) => hotspotsByUrgency[urgency] > 0).map((urgency) => (
+                      <span key={`urgency-${urgency}`} className="font-mono text-slate-300">
+                        {urgency}:{hotspotsByUrgency[urgency]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-slate-500">filters</span>
+                  <select
+                    className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+                    value={graphTypeFilter}
+                    onChange={(e) => setGraphTypeFilter(e.target.value)}
+                  >
+                    <option value="all">type: all</option>
+                    {graphTypeOptions.map((nodeType) => (
+                      <option key={nodeType} value={nodeType}>
+                        type: {nodeType}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1 text-slate-300"
+                    value={graphUrgencyFilter}
+                    onChange={(e) => setGraphUrgencyFilter(e.target.value as 'all' | GraphUrgencyClass)}
+                  >
+                    <option value="all">class: all</option>
+                    {graphUrgencyOptions.map((urgency) => (
+                      <option key={urgency} value={urgency}>
+                        class: {urgency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-xs text-slate-500 mb-2">
+                  focus: {selectedVisionId ?? 'all'} · hotspots: {graphHotspots.length}/{hotspotNodes.length}
+                </div>
+                {graphHotspots.length === 0 ? (
+                  <p className="text-xs text-slate-500">No graph hotspots right now.</p>
+                ) : (
+                  graphHotspots.map(renderGraphNodeRow)
+                )}
+              </Section>
+
               <Section title="Active Risks" count={activeRisks.length}>
                 {activeRisks.length === 0 ? (
                   <p className="text-xs text-slate-500">No active risks.</p>

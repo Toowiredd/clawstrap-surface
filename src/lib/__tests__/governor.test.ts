@@ -485,8 +485,15 @@ describe('governorApi mapping', () => {
     expectFetchPath('gates')
   })
 
-  it('maps graph nodes from camelCase payloads and filters malformed items', async () => {
+  it('maps graph envelope from camelCase payloads and filters malformed items', async () => {
     mockJson({
+      contractVersion: 'graph.v1',
+      generatedAt: 2000,
+      stats: {
+        nodeCount: 1,
+        edgeCount: 1,
+        orphanEdges: 0,
+      },
       nodes: [
         {
           id: 'node_1',
@@ -496,15 +503,40 @@ describe('governorApi mapping', () => {
           attention: 'watch',
           importance: 0.9,
           visionId: 'vis_1',
+          specId: null,
+          taskId: 'task_1',
           updatedAt: 1234,
         },
         { id: 'node_bad', label: 'Missing fields' },
+      ],
+      edges: [
+        {
+          id: 'edge_1',
+          edgeType: 'depends_on',
+          fromId: 'task_1',
+          toId: 'task_2',
+          weight: 1,
+          direction: 'directed',
+          visionId: 'vis_1',
+          specId: 'spec_1',
+          taskId: 'task_2',
+          createdAt: 1000,
+          updatedAt: 1001,
+        },
+        { id: 'edge_bad', edgeType: 'depends_on' },
       ],
     })
 
     const graph = await governorApi.graph()
 
     expect(graph).toEqual({
+      contract_version: 'graph.v1',
+      generated_at: 2000,
+      stats: {
+        node_count: 1,
+        edge_count: 1,
+        orphan_edges: 0,
+      },
       nodes: [
         {
           id: 'node_1',
@@ -514,9 +546,71 @@ describe('governorApi mapping', () => {
           attention: 'watch',
           importance: 0.9,
           vision_id: 'vis_1',
+          spec_id: null,
+          task_id: 'task_1',
           updated_at: 1234,
         },
       ],
+      edges: [
+        {
+          id: 'edge_1',
+          edge_type: 'depends_on',
+          from_id: 'task_1',
+          to_id: 'task_2',
+          weight: 1,
+          direction: 'directed',
+          vision_id: 'vis_1',
+          spec_id: 'spec_1',
+          task_id: 'task_2',
+          created_at: 1000,
+          updated_at: 1001,
+        },
+      ],
+    })
+    expectFetchPath('graph')
+  })
+
+  it('falls back graph envelope metadata for legacy node-only payloads', async () => {
+    mockJson({
+      nodes: [
+        {
+          id: 'node_legacy_1',
+          node_type: 'Task',
+          label: 'Legacy node',
+          status: 'active',
+          attention: 'watch',
+          importance: 0.5,
+          vision_id: 'vis_legacy',
+          updated_at: 333,
+        },
+      ],
+    })
+
+    const graph = await governorApi.graph()
+
+    expect(graph).toEqual({
+      contract_version: 'graph.legacy',
+      generated_at: 0,
+      stats: {
+        node_count: 1,
+        edge_count: 0,
+        orphan_edges: 0,
+      },
+      nodes: [
+        {
+          id: 'node_legacy_1',
+          node_type: 'Task',
+          label: 'Legacy node',
+          status: 'active',
+          attention: 'watch',
+          importance: 0.5,
+          vision_id: 'vis_legacy',
+          spec_id: null,
+          task_id: null,
+          updated_at: 333,
+        },
+      ],
+      edges: [],
     })
     expectFetchPath('graph')
   })
