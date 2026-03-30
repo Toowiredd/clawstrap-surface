@@ -16,6 +16,7 @@ All notable changes to Mission Control are documented in this file.
 
 ### Changed
 - Governor projection mapping now explicitly preserves lineage fields (`vision_id`, `spec_id`, `task_id`) across decision/question/risk payloads.
+- OpenClaw setup guidance now treats `OPENCLAW_STATE_DIR` and `OPENCLAW_CONFIG_PATH` as canonical, with `OPENCLAW_HOME` documented as legacy fallback only.
 - Contract posture hardened for forward compatibility:
 - unknown future task status strings are preserved instead of dropping otherwise valid rows.
 - omitted optional payload fields normalize to `null` for task/question/gate records.
@@ -57,7 +58,7 @@ Mission Control 2.0.1 is the first patch release after the v2 launch. It rolls u
 - Fresh HTTP Docker installs failing login because secure-cookie behavior did not follow the actual request protocol
 - Gateway auth and credential detection for mixed token/password setups
 - Task dispatch using display names instead of gateway agent IDs
-- Docker and gateway-optional regressions across Compose startup, health probes, public assets, `OPENCLAW_HOME`, and read-only config handling
+- Docker and gateway-optional regressions across Compose startup, health probes, public assets, OpenClaw path resolution (including legacy `OPENCLAW_HOME` fallback), and read-only config handling
 - SQLite `SQLITE_BUSY` contention by adding `busy_timeout` and guarding build-phase eager initialization
 - Doctor banner dismissal persistence, cron panel crash handling, and null-safe model config editing
 - Gateway connectivity and onboarding probe issues, including POST-based wizard health checks and explicit public websocket URL preference

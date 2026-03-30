@@ -158,15 +158,19 @@ setup_env() {
     fi
   fi
 
-  # Auto-detect and write OpenClaw home directory into .env
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
-  if [[ -d "$oc_home" ]]; then
+  # Auto-detect and write canonical OpenClaw state/config paths into .env
+  local oc_state="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"
+  local oc_config="$oc_state/openclaw.json"
+  if [[ -d "$oc_state" ]]; then
     if [[ "$(uname)" == "Darwin" ]]; then
-      sed -i '' "s|^OPENCLAW_HOME=.*|OPENCLAW_HOME=$oc_home|" "$INSTALL_DIR/.env"
+      sed -i '' "s|^OPENCLAW_STATE_DIR=.*|OPENCLAW_STATE_DIR=$oc_state|" "$INSTALL_DIR/.env"
+      sed -i '' "s|^# OPENCLAW_CONFIG_PATH=.*|OPENCLAW_CONFIG_PATH=$oc_config|" "$INSTALL_DIR/.env"
     else
-      sed -i "s|^OPENCLAW_HOME=.*|OPENCLAW_HOME=$oc_home|" "$INSTALL_DIR/.env"
+      sed -i "s|^OPENCLAW_STATE_DIR=.*|OPENCLAW_STATE_DIR=$oc_state|" "$INSTALL_DIR/.env"
+      sed -i "s|^# OPENCLAW_CONFIG_PATH=.*|OPENCLAW_CONFIG_PATH=$oc_config|" "$INSTALL_DIR/.env"
     fi
-    info "Set OPENCLAW_HOME=$oc_home in .env"
+    info "Set OPENCLAW_STATE_DIR=$oc_state in .env"
+    info "Set OPENCLAW_CONFIG_PATH=$oc_config in .env"
   fi
 
   # In Docker mode, the gateway runs on the host, not inside the container.
@@ -333,13 +337,13 @@ check_openclaw() {
     return
   fi
 
-  # Check OpenClaw home directory
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
-  if [[ -d "$oc_home" ]]; then
-    ok "OpenClaw home: $oc_home"
+  # Check OpenClaw state directory
+  local oc_state="${OPENCLAW_STATE_DIR:-${OPENCLAW_HOME:-$HOME/.openclaw}}"
+  if [[ -d "$oc_state" ]]; then
+    ok "OpenClaw state dir: $oc_state"
 
     # Check config
-    local oc_config="$oc_home/openclaw.json"
+    local oc_config="${OPENCLAW_CONFIG_PATH:-$oc_state/openclaw.json}"
     if [[ -f "$oc_config" ]]; then
       ok "Config found: $oc_config"
     else
@@ -349,7 +353,7 @@ check_openclaw() {
 
     # Check for stale PID files
     local stale_count=0
-    for pidfile in "$oc_home"/*.pid "$oc_home"/pids/*.pid; do
+    for pidfile in "$oc_state"/*.pid "$oc_state"/pids/*.pid; do
       [[ -f "$pidfile" ]] || continue
       local pid
       pid="$(cat "$pidfile" 2>/dev/null)" || continue
@@ -363,7 +367,7 @@ check_openclaw() {
     fi
 
     # Check logs directory size
-    local logs_dir="$oc_home/logs"
+    local logs_dir="$oc_state/logs"
     if [[ -d "$logs_dir" ]]; then
       local logs_size
       if [[ "$(uname)" == "Darwin" ]]; then
@@ -383,7 +387,7 @@ check_openclaw() {
     fi
 
     # Check workspace directory
-    local workspace="$oc_home/workspace"
+    local workspace="$oc_state/workspace"
     if [[ -d "$workspace" ]]; then
       local agent_count
       agent_count=$(find "$workspace" -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
@@ -391,8 +395,8 @@ check_openclaw() {
       info "Workspace: $agent_count agent workspace(s) in $workspace"
     fi
   else
-    info "OpenClaw home not found at $oc_home"
-    info "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+    info "OpenClaw state dir not found at $oc_state"
+    info "Set OPENCLAW_STATE_DIR in .env to point to your OpenClaw state directory"
   fi
 
   # Check gateway port

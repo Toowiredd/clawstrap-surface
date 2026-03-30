@@ -273,7 +273,7 @@ function scanOpenClaw(): Category {
       detail: gatewayOptional
         ? 'OpenClaw not configured (standalone mode — gateway optional)'
         : 'openclaw.json not found — OpenClaw checks skipped',
-      fix: gatewayOptional ? '' : 'Set OPENCLAW_HOME or OPENCLAW_CONFIG_PATH in .env',
+      fix: gatewayOptional ? '' : 'Set OPENCLAW_CONFIG_PATH or OPENCLAW_STATE_DIR in .env',
       severity: 'low',
     })
     return scoreCategory(checks)

@@ -145,7 +145,8 @@ See `.env.example` for the full list. Key variables:
 | `AUTH_PASS_B64` | No | - | Base64-encoded admin password (overrides `AUTH_PASS` if set) |
 | `API_KEY` | Yes | - | API key for headless access |
 | `PORT` | No | `3005` (direct) / `3000` (Docker) | Server port |
-| `OPENCLAW_HOME` | No | - | Path to OpenClaw installation |
+| `OPENCLAW_STATE_DIR` | No | `~/.openclaw` | OpenClaw state root |
+| `OPENCLAW_CONFIG_PATH` | No | `<state-dir>/openclaw.json` | Explicit path to `openclaw.json` |
 | `MC_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Allowed hosts in production |
 
 ## Kubernetes Sidecar Deployment

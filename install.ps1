@@ -326,12 +326,12 @@ function Test-OpenClaw {
         return
     }
 
-    # Check OpenClaw home directory
-    $ocHome = if ($env:OPENCLAW_HOME) { $env:OPENCLAW_HOME } else { Join-Path $HOME ".openclaw" }
-    if (Test-Path $ocHome) {
-        Write-Ok "OpenClaw home: $ocHome"
+    # Check OpenClaw state directory
+    $ocState = if ($env:OPENCLAW_STATE_DIR) { $env:OPENCLAW_STATE_DIR } elseif ($env:OPENCLAW_HOME) { $env:OPENCLAW_HOME } else { Join-Path $HOME ".openclaw" }
+    if (Test-Path $ocState) {
+        Write-Ok "OpenClaw state dir: $ocState"
 
-        $ocConfig = Join-Path $ocHome "openclaw.json"
+        $ocConfig = if ($env:OPENCLAW_CONFIG_PATH) { $env:OPENCLAW_CONFIG_PATH } else { Join-Path $ocState "openclaw.json" }
         if (Test-Path $ocConfig) {
             Write-Ok "Config found: $ocConfig"
         } else {
@@ -339,8 +339,8 @@ function Test-OpenClaw {
             Write-MC "Clawstrap will create a default config on first gateway connection"
         }
     } else {
-        Write-MC "OpenClaw home not found at $ocHome"
-        Write-MC "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+        Write-MC "OpenClaw state dir not found at $ocState"
+        Write-MC "Set OPENCLAW_STATE_DIR in .env to point to your OpenClaw state directory"
     }
 
     # Check gateway port
