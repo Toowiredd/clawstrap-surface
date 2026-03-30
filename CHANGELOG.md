@@ -17,12 +17,16 @@ All notable changes to Mission Control are documented in this file.
 ### Changed
 - Governor projection mapping now explicitly preserves lineage fields (`vision_id`, `spec_id`, `task_id`) across decision/question/risk payloads.
 - OpenClaw setup guidance now treats `OPENCLAW_STATE_DIR` and `OPENCLAW_CONFIG_PATH` as canonical, with `OPENCLAW_HOME` documented as legacy fallback only.
+- Task dispatch and pipeline execution now detect self-build intent, require the live intelligence bundle, and prepend a bounded self-build contract before handing work to agents.
+- Guarded self-build mode now blocks multi-step autonomous pipelines when activation intelligence indicates runtime truth is still too weak.
+- Self-build dispatch metadata is now stamped into run/task provenance so Mission Control can trace which intelligence packet governed an execution.
 - Contract posture hardened for forward compatibility:
 - unknown future task status strings are preserved instead of dropping otherwise valid rows.
 - omitted optional payload fields normalize to `null` for task/question/gate records.
 
 ### Tests
 - Added regression coverage for governor route proxy parity at `src/lib/__tests__/governor-route.test.ts`.
+- Added regression coverage for self-build intelligence loading, intent detection, guarded multi-step blocking, and prompt preamble generation at `src/lib/__tests__/self-build-intelligence.test.ts`.
 - Expanded governor mapper coverage in `src/lib/__tests__/governor.test.ts` for:
 - lineage-null preservation across questions/risks
 - unknown enum/status tolerance

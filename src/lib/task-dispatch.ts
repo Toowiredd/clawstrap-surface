@@ -4,6 +4,13 @@ import { callOpenClawGateway } from './openclaw-gateway'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
+import {
+  buildSelfBuildMetadata,
+  buildSelfBuildPromptPreamble,
+  collectSelfBuildSignals,
+  evaluateSelfBuildGuard,
+  loadSelfBuildIntelligence,
+} from './self-build-intelligence'
 
 interface DispatchableTask {
   id: number
@@ -682,7 +689,26 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       `).get(task.id) as { content: string } | undefined
       const rejectionFeedback = rejectionRow?.content?.replace(/^Quality Review Rejected:\n?/, '') || null
 
-      const prompt = buildTaskPrompt(task, rejectionFeedback)
+      const basePrompt = buildTaskPrompt(task, rejectionFeedback)
+      const selfBuildSignals = collectSelfBuildSignals({
+        name: task.title,
+        description: task.description,
+        prompt: basePrompt,
+        tags: task.tags,
+      })
+      const selfBuildBundle = selfBuildSignals.length > 0 ? loadSelfBuildIntelligence() : null
+      if (selfBuildSignals.length > 0) {
+        if (!selfBuildBundle) {
+          throw new Error('Self-build intelligence artifacts are missing. Run scripts/build-activation-intelligence.ps1 before dispatching self-build work.')
+        }
+        const violations = evaluateSelfBuildGuard(selfBuildBundle)
+        if (violations.length > 0) {
+          throw new Error(`Self-build task blocked by intelligence gate: ${violations.join(' | ')}`)
+        }
+      }
+      const prompt = selfBuildBundle && selfBuildSignals.length > 0
+        ? `${buildSelfBuildPromptPreamble(selfBuildBundle, selfBuildSignals, 'task')}\n\n${basePrompt}`
+        : basePrompt
 
       // Check if task has a target session specified in metadata
       const taskMeta = (() => {
@@ -770,8 +796,48 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
           return row?.metadata ? JSON.parse(row.metadata) : {}
         } catch { return {} }
       })()
+
+      if (targetSession) {
+        existingMeta.dispatch_session_id = agentResponse.sessionId || targetSession
+        existingMeta.dispatch_status = 'pending_agent_reply'
+        if (selfBuildBundle && selfBuildSignals.length > 0) {
+          existingMeta.self_build = buildSelfBuildMetadata(selfBuildBundle, selfBuildSignals)
+        }
+
+        db.prepare(`
+          UPDATE tasks SET metadata = ?, updated_at = ? WHERE id = ?
+        `).run(JSON.stringify(existingMeta), Math.floor(Date.now() / 1000), task.id)
+
+        db.prepare(`
+          INSERT INTO comments (task_id, author, content, created_at, workspace_id)
+          VALUES (?, 'scheduler', ?, ?, ?)
+        `).run(
+          task.id,
+          `Task dispatched to existing session ${targetSession}. Status remains in_progress until an actual agent response is captured.`,
+          Math.floor(Date.now() / 1000),
+          task.workspace_id,
+        )
+
+        db_helpers.logActivity(
+          'task_dispatched_to_session',
+          'task',
+          task.id,
+          'scheduler',
+          `Task "${task.title}" dispatched to existing session ${targetSession}`,
+          { dispatch_session_id: agentResponse.sessionId || targetSession },
+          task.workspace_id,
+        )
+
+        results.push({ id: task.id, success: true })
+        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Task dispatched to existing session and left in_progress')
+        continue
+      }
+
       if (agentResponse.sessionId) {
         existingMeta.dispatch_session_id = agentResponse.sessionId
+      }
+      if (selfBuildBundle && selfBuildSignals.length > 0) {
+        existingMeta.self_build = buildSelfBuildMetadata(selfBuildBundle, selfBuildSignals)
       }
 
       // Update task: status → review, set outcome

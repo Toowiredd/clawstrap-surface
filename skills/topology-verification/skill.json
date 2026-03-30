@@ -1,0 +1,26 @@
+{
+  "name": "topology-verification",
+  "version": "1.0.0",
+  "description": "Migrate and verify Clawstrap topology specs with autonomous safety gates.",
+  "author": "Clawstrap",
+  "license": "MIT",
+  "tools": ["exec", "fs"],
+  "parameters": {
+    "repo_root": {
+      "type": "string",
+      "default": ".",
+      "description": "Repository root where topology artifacts live."
+    },
+    "spec_path": {
+      "type": "string",
+      "default": "reviews/topology-verification/clawstrap-topology-spec.json",
+      "description": "Path to source topology spec relative to repo root."
+    },
+    "strict": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to fail verification on warnings."
+    }
+  },
+  "tags": ["topology", "verification", "autonomous", "safety", "clawstrap"]
+}

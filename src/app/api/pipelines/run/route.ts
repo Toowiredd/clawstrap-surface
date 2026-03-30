@@ -3,16 +3,34 @@ import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
+import { createRun, updateRun } from '@/lib/runs'
+import {
+  buildSelfBuildMetadata,
+  buildSelfBuildPromptPreamble,
+  collectSelfBuildSignals,
+  evaluateSelfBuildGuard,
+  loadSelfBuildIntelligence,
+} from '@/lib/self-build-intelligence'
 
 interface PipelineStep {
   template_id: number
   on_failure: 'stop' | 'continue'
 }
 
+interface WorkflowTemplateRecord {
+  id: number
+  name: string
+  model: string
+  task_prompt: string
+  timeout_seconds: number
+  tags?: string | null
+}
+
 interface RunStepState {
   step_index: number
   template_id: number
   template_name: string
+  on_failure?: 'stop' | 'continue'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
   spawn_id: string | null
   started_at: number | null
@@ -120,17 +138,22 @@ export async function POST(request: NextRequest) {
 async function spawnStep(
   db: ReturnType<typeof getDatabase>,
   pipelineName: string,
-  template: { name: string; model: string; task_prompt: string; timeout_seconds: number },
+  template: WorkflowTemplateRecord,
   steps: RunStepState[],
   stepIdx: number,
   runId: number,
-  workspaceId: number
+  workspaceId: number,
+  selfBuildBundle: ReturnType<typeof loadSelfBuildIntelligence> | null,
+  selfBuildSignals: string[],
 ): Promise<{ success: boolean; stdout?: string; error?: string }> {
   try {
     const { runOpenClaw } = await import('@/lib/command')
+    const prompt = selfBuildBundle && selfBuildSignals.length > 0
+      ? `${buildSelfBuildPromptPreamble(selfBuildBundle, selfBuildSignals, 'pipeline')}\n\n${template.task_prompt}`
+      : template.task_prompt
     const args = [
       'agent',
-      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
+      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${prompt}`,
       '--timeout', String(template.timeout_seconds),
       '--json',
     ]
@@ -160,9 +183,43 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   // Get template names for snapshot
   const templateIds = steps.map(s => s.template_id)
   const templates = db.prepare(
-    `SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id IN (${templateIds.map(() => '?').join(',')})`
-  ).all(...templateIds) as Array<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>
+    `SELECT id, name, model, task_prompt, timeout_seconds, tags FROM workflow_templates WHERE id IN (${templateIds.map(() => '?').join(',')})`
+  ).all(...templateIds) as WorkflowTemplateRecord[]
   const templateMap = new Map(templates.map(t => [t.id, t]))
+  const templateTags = templates.flatMap((template) => {
+    if (!template.tags) return []
+    try {
+      const parsed = JSON.parse(template.tags)
+      return Array.isArray(parsed) ? parsed.map((item) => String(item)) : []
+    } catch {
+      return []
+    }
+  })
+  const selfBuildSignals = collectSelfBuildSignals({
+    name: pipeline.name,
+    description: pipeline.description,
+    prompt: templates.map((template) => template.task_prompt).join('\n\n'),
+    tags: templateTags,
+  })
+  const isSelfBuildPipeline = selfBuildSignals.length > 0
+  const selfBuildBundle = isSelfBuildPipeline ? loadSelfBuildIntelligence() : null
+
+  if (isSelfBuildPipeline) {
+    if (!selfBuildBundle) {
+      return NextResponse.json(
+        { error: 'Self-build intelligence artifacts are missing. Run scripts/build-activation-intelligence.ps1 before starting this pipeline.' },
+        { status: 409 },
+      )
+    }
+
+    const violations = evaluateSelfBuildGuard(selfBuildBundle, { stepCount: steps.length })
+    if (violations.length > 0) {
+      return NextResponse.json(
+        { error: 'Self-build pipeline blocked by intelligence gate', violations },
+        { status: 409 },
+      )
+    }
+  }
 
   // Build step snapshot
   const stepsSnapshot: RunStepState[] = steps.map((s, i) => ({
@@ -185,6 +242,42 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
 
   const runId = Number(result.lastInsertRowid)
 
+  if (isSelfBuildPipeline && selfBuildBundle) {
+    createRun({
+      id: `pipeline-${runId}`,
+      agent_id: `pipeline:${pipelineId}`,
+      agent_name: pipeline.name,
+      runtime: 'mission-control-pipeline',
+      trigger: 'pipeline',
+      status: 'running',
+      started_at: new Date().toISOString(),
+      steps: [
+        {
+          id: `pipeline-${runId}-guard`,
+          type: 'message',
+          input_preview: 'Self-build pipeline gate applied',
+          output_preview: `Mode=${selfBuildBundle.activationGate.mode_recommendation || selfBuildBundle.runManifest.recommended_mode || 'unknown'}`,
+          success: true,
+          started_at: new Date().toISOString(),
+          metadata: buildSelfBuildMetadata(selfBuildBundle, selfBuildSignals),
+        },
+      ],
+      cost: { input_tokens: 0, output_tokens: 0 },
+      provenance: {
+        run_hash: '',
+        config_hash: selfBuildBundle.configHash,
+        runtime: 'mission-control-pipeline',
+        created_at: new Date().toISOString(),
+      },
+      metadata: {
+        pipeline_id: pipelineId,
+        pipeline_run_id: runId,
+        self_build: buildSelfBuildMetadata(selfBuildBundle, selfBuildSignals),
+      },
+      tags: ['pipeline', 'self-build'],
+    }, workspaceId)
+  }
+
   // Update pipeline usage
   db.prepare(`
     UPDATE workflow_pipelines SET use_count = use_count + 1, last_used_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?
@@ -194,7 +287,7 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   const firstTemplate = templateMap.get(steps[0].template_id)
   let spawnResult: any = null
   if (firstTemplate) {
-    spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId)
+    spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId, selfBuildBundle, selfBuildSignals)
   }
 
   db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId }, workspaceId)
@@ -229,6 +322,8 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   const steps: (RunStepState & { on_failure?: string })[] = JSON.parse(run.steps_snapshot)
   const currentIdx = run.current_step
   const now = Math.floor(Date.now() / 1000)
+  const selfBuildSignals = collectSelfBuildSignals({ name: String((run as any).triggered_by || ''), prompt: JSON.stringify(steps) })
+  const selfBuildBundle = selfBuildSignals.length > 0 ? loadSelfBuildIntelligence() : null
 
   // Mark current step as completed/failed
   steps[currentIdx].status = success ? 'completed' : 'failed'
@@ -244,6 +339,13 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
     for (let i = nextIdx; i < steps.length; i++) steps[i].status = 'skipped'
     db.prepare('UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
       .run('failed', currentIdx, JSON.stringify(steps), now, runId, workspaceId)
+    updateRun(`pipeline-${runId}`, {
+      status: 'failed',
+      outcome: 'failed',
+      ended_at: new Date().toISOString(),
+      duration_ms: run.started_at ? Math.max(0, now - run.started_at) * 1000 : null,
+      error: errorMsg || null,
+    }, workspaceId)
     return NextResponse.json({ run: { id: runId, status: 'failed', steps_snapshot: steps } })
   }
 
@@ -252,6 +354,19 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
     const finalStatus = steps.some(s => s.status === 'failed') ? 'completed' : 'completed'
     db.prepare('UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
       .run(finalStatus, currentIdx, JSON.stringify(steps), now, runId, workspaceId)
+    updateRun(`pipeline-${runId}`, {
+      status: 'completed',
+      outcome: steps.some(s => s.status === 'failed') ? 'partial' : 'success',
+      ended_at: new Date().toISOString(),
+      duration_ms: run.started_at ? Math.max(0, now - run.started_at) * 1000 : null,
+      metadata: selfBuildBundle
+        ? {
+            pipeline_id: run.pipeline_id,
+            pipeline_run_id: runId,
+            self_build: buildSelfBuildMetadata(selfBuildBundle, selfBuildSignals),
+          }
+        : undefined,
+    }, workspaceId)
 
     eventBus.broadcast('activity.created', {
       type: 'pipeline_completed',
@@ -268,12 +383,12 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   steps[nextIdx].started_at = now
 
   const template = db.prepare('SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id = ?')
-    .get(steps[nextIdx].template_id) as any
+    .get(steps[nextIdx].template_id) as WorkflowTemplateRecord | undefined
 
   let spawnResult: any = null
   if (template) {
     const pipeline = db.prepare('SELECT name FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').get(run.pipeline_id, workspaceId) as any
-    spawnResult = await spawnStep(db, pipeline?.name || '?', template, steps, nextIdx, runId, workspaceId)
+    spawnResult = await spawnStep(db, pipeline?.name || '?', template, steps, nextIdx, runId, workspaceId, selfBuildBundle, selfBuildSignals)
   }
 
   db.prepare('UPDATE pipeline_runs SET current_step = ?, steps_snapshot = ? WHERE id = ? AND workspace_id = ?')
@@ -305,6 +420,12 @@ function cancelRun(db: ReturnType<typeof getDatabase>, runId: number, workspaceI
 
   db.prepare('UPDATE pipeline_runs SET status = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
     .run('cancelled', JSON.stringify(steps), now, runId, workspaceId)
+  updateRun(`pipeline-${runId}`, {
+    status: 'cancelled',
+    outcome: 'abandoned',
+    ended_at: new Date().toISOString(),
+    duration_ms: run.started_at ? Math.max(0, now - run.started_at) * 1000 : null,
+  }, workspaceId)
 
   return NextResponse.json({ run: { id: runId, status: 'cancelled', steps_snapshot: steps } })
 }
